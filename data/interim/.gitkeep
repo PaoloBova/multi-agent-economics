@@ -1,0 +1,2 @@
+# This file keeps the interim data directory in git
+# Intermediate processing results will be tracked by DVC
