@@ -211,6 +211,188 @@ dvc add data/
 dvc repro
 ```
 
+## Data Version Control (DVC) Best Practices
+
+### 1. DVC Setup Strategy
+- **Initialize after Git**: Always run `git init` before `dvc init`
+- **Commit DVC files**: Add `.dvc/`, `.dvcignore`, `dvc.yaml`, and `dvc.lock` to Git
+- **Structure first**: Create data directories before defining pipeline
+- **Start simple**: Begin with basic 3-stage pipeline (prepare → simulate → analyze)
+
+### 2. Directory Structure for DVC
+```
+data/
+├── raw/              # Original input data (tracked by DVC)
+├── interim/          # Intermediate processing results
+└── processed/        # Final data ready for ML/simulation
+
+results/
+├── analysis/         # Statistical summaries and reports
+└── plots/           # Generated visualizations
+
+scripts/
+├── prepare_data.py   # Stage 1: Data preparation
+├── run_simulation.py # Stage 2: Main processing/simulation
+└── analyze_results.py# Stage 3: Analysis and visualization
+```
+
+### 3. Pipeline Design Principles
+- **Single responsibility**: Each stage should have one clear purpose
+- **Dependency tracking**: Explicitly declare all inputs and outputs
+- **Parameter management**: Use YAML configs for reproducible experiments
+- **Incremental outputs**: Generate intermediate results for debugging
+
+### 4. DVC Configuration Best Practices
+
+#### dvc.yaml Structure
+```yaml
+stages:
+  stage_name:
+    cmd: python scripts/script_name.py
+    deps:                    # Input dependencies
+      - data/input/
+      - scripts/script_name.py
+    params:                  # Configuration parameters
+      - config.yaml:
+          - section.parameter
+    outs:                    # Output files/directories
+      - data/output/
+    plots:                   # Visualization outputs
+      - results/plots/chart.png
+```
+
+#### Parameter Files
+- **Use YAML**: More readable than JSON for configuration
+- **Nested structure**: Organize parameters logically by category
+- **Version control**: Keep parameter files in Git, not DVC
+- **Documentation**: Comment parameter purposes and valid ranges
+
+### 5. Common DVC Patterns
+
+#### Data Pipeline Stages
+1. **prepare_data**: Clean, validate, and format raw data
+2. **run_simulation/train_model**: Execute main computation
+3. **analyze_results**: Generate metrics, plots, and reports
+
+#### Dependency Management
+- **Scripts**: Always include the script file as a dependency
+- **Data**: Track input data directories or specific files
+- **Config**: Reference specific config sections, not entire files
+- **Code**: Include relevant package directories for complex projects
+
+#### Output Management
+- **Intermediate data**: Save to `data/interim/` for debugging
+- **Final results**: Save to `results/` or `data/processed/`
+- **Visualizations**: Generate plots in `results/plots/`
+- **Models**: Save trained models to dedicated directory
+
+### 6. DVC Workflow Commands
+
+#### Development Workflow
+```bash
+# Check pipeline status
+dvc status                  # See what needs to be run
+dvc dag                     # Visualize pipeline dependencies
+
+# Run pipeline
+dvc repro                   # Run only changed stages
+dvc repro --force          # Force re-run all stages
+dvc repro stage_name       # Run specific stage
+
+# Experiment tracking
+dvc params diff            # Compare parameter changes
+dvc metrics show           # Display current metrics
+dvc plots show             # Generate plot comparisons
+```
+
+#### Data Management
+```bash
+# Track large files
+dvc add data/large_file.csv
+
+# Remote storage (optional)
+dvc remote add -d myremote s3://bucket/path
+dvc push                   # Upload data to remote
+dvc pull                   # Download data from remote
+
+# Experiment branches
+git checkout -b experiment-name
+# modify parameters
+dvc repro
+git add dvc.lock params.yaml
+git commit -m "Experiment: description"
+```
+
+### 7. .dvcignore Patterns
+```
+# Python artifacts
+__pycache__/
+*.py[cod]
+.venv/
+
+# IDE files
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+.temp/
+
+# Large binary files (track separately)
+*.pkl
+*.joblib
+*.h5
+```
+
+### 8. Error Prevention & Debugging
+
+#### Common Issues
+1. **Missing dependencies**: Include all input files and scripts in `deps`
+2. **Circular dependencies**: Avoid stages that depend on their own outputs
+3. **Path issues**: Use relative paths from project root
+4. **Permission errors**: Ensure scripts are executable (`chmod +x`)
+
+#### Debugging Commands
+```bash
+# Verbose output
+dvc repro --verbose
+
+# Check specific stage
+dvc repro stage_name --verbose
+
+# Force regenerate pipeline
+rm dvc.lock && dvc repro
+
+# Validate pipeline definition
+dvc dag --verbose
+```
+
+### 9. Integration with Development Workflow
+
+#### Git Integration
+- **Commit strategy**: Commit `dvc.yaml` and parameter files to Git
+- **Ignore outputs**: Add DVC-tracked files to `.gitignore`
+- **Branch experiments**: Use Git branches for different experiments
+- **Tag releases**: Tag important experiment results
+
+#### Code Organization
+- **Script location**: Keep DVC scripts in dedicated `scripts/` directory
+- **Import structure**: Scripts should import from main package
+- **Error handling**: Scripts should handle errors gracefully
+- **Logging**: Add appropriate logging for debugging
+
+### 10. Scaling and Advanced Usage
+
+#### Performance Optimization
+- **Parallel execution**: Use `dvc repro --jobs 4` for parallel stages
+- **Caching**: Leverage DVC's automatic caching for unchanged inputs
+- **Remote compute**: Configure DVC for cloud execution environments
+
+#### Collaboration
+- **Remote storage**: Set up shared S3/Azure/GCS for team data sharing
+- **Pipeline sharing**: Version control pipeline definitions
+- **Experiment tracking**: Use DVC experiments for systematic parameter sweeps
+
 ---
 
 *This document should be updated as new best practices are discovered during development.*
