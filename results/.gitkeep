@@ -1,0 +1,2 @@
+# This file keeps the results directory in git
+# Simulation results and analysis outputs will be tracked by DVC
