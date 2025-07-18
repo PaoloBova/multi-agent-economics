@@ -1,0 +1,39 @@
+stages:
+  prepare_data:
+    cmd: python scripts/prepare_data.py
+    deps:
+      - data/raw/
+      - scripts/prepare_data.py
+    outs:
+      - data/processed/
+
+  run_simulation:
+    cmd: python scripts/run_simulation.py
+    deps:
+      - data/processed/
+      - scripts/run_simulation.py
+      - multi_agent_economics/
+    params:
+      - simulation_config.yaml:
+          - agents.count
+          - simulation.steps
+          - economic.market_type
+    outs:
+      - results/simulation_output.csv
+      - results/agent_behaviors.json
+
+  analyze_results:
+    cmd: python scripts/analyze_results.py
+    deps:
+      - results/simulation_output.csv
+      - results/agent_behaviors.json
+      - scripts/analyze_results.py
+    outs:
+      - results/analysis/
+    plots:
+      - results/plots/economic_indicators.png:
+          x: time_step
+          y: market_price
+      - results/plots/agent_wealth_distribution.png:
+          template: histogram
+          x: agent_wealth

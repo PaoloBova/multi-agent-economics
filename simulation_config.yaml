@@ -1,0 +1,25 @@
+agents:
+  count: 100
+  types:
+    - consumer
+    - producer
+    - trader
+  initial_wealth: 1000
+
+simulation:
+  steps: 1000
+  random_seed: 42
+  output_frequency: 10
+
+economic:
+  market_type: "auction"
+  inflation_rate: 0.02
+  interest_rate: 0.05
+  volatility: 0.1
+
+environment:
+  resources:
+    - food
+    - energy
+    - technology
+  scarcity_factor: 0.8
