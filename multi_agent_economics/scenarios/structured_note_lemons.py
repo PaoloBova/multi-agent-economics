@@ -1,0 +1,398 @@
+"""
+Structured-Note Lemons flagship scenario implementation.
+
+This module implements the finance domain scenario where internal quality 
+drives adverse selection in structured note markets.
+"""
+
+import asyncio
+import json
+from pathlib import Path
+from typing import Dict, List, Any, Optional
+from datetime import datetime
+
+from autogen_agentchat.teams import GraphGroupChat
+from autogen_agentchat.conditions import MaxMessageTermination, TextMentionTermination
+from autogen_agentchat.ui import Console
+from autogen_ext.models.openai import OpenAIChatCompletionClient
+
+import networkx as nx
+
+from ..core import (
+    ArtifactManager, ToolRegistry, ActionLogger, 
+    BudgetManager, QualityTracker, QualityFunction
+)
+from ..agents import create_agent
+
+
+class StructuredNoteLemonsScenario:
+    """Flagship scenario: Structured-Note Lemons market simulation."""
+    
+    def __init__(self, workspace_dir: Path, config: Optional[Dict[str, Any]] = None):
+        self.workspace_dir = Path(workspace_dir)
+        self.workspace_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Load configuration
+        self.config = config or self._default_config()
+        
+        # Initialize core systems
+        self.artifact_manager = ArtifactManager(self.workspace_dir / "artifacts")
+        self.tool_registry = ToolRegistry()
+        self.action_logger = ActionLogger(self.workspace_dir / "logs")
+        self.budget_manager = BudgetManager()
+        self.quality_function = QualityFunction()
+        self.quality_tracker = QualityTracker(self.quality_function)
+        
+        # Market state
+        self.market_state = self._initialize_market_state()
+        
+        # Agents and teams
+        self.agents: Dict[str, Any] = {}
+        self.teams: Dict[str, Any] = {}
+        
+        # Results tracking
+        self.round_results: List[Dict[str, Any]] = []
+        self.current_round = 0
+    
+    def _default_config(self) -> Dict[str, Any]:
+        """Default configuration for the scenario."""
+        return {
+            "rounds": 10,
+            "seller_banks": ["SellerBank1", "SellerBank2"],
+            "buyer_funds": ["BuyerFund1", "BuyerFund2"],
+            "initial_budgets": {
+                "seller_bank": 20,
+                "buyer_fund": 10
+            },
+            "market_parameters": {
+                "base_notional": 100,
+                "discount_rate": 0.03,
+                "volatility": 0.15
+            }
+        }
+    
+    def _initialize_market_state(self) -> Dict[str, Any]:
+        """Initialize the market state with synthetic data."""
+        return {
+            "round": 0,
+            "market_data": {
+                "sectors": {
+                    "tech": {"mean_growth": 0.08, "volatility": 0.15},
+                    "finance": {"mean_growth": 0.06, "volatility": 0.12},
+                    "healthcare": {"mean_growth": 0.07, "volatility": 0.10}
+                },
+                "discount_curve": {"rate": 0.03, "term_structure": [0.025, 0.03, 0.035]},
+                "market_sentiment": "neutral"
+            },
+            "posted_instruments": [],
+            "trade_history": [],
+            "competitor_actions": []
+        }
+    
+    async def setup_agents(self):
+        """Create all agents for the scenario."""
+        # Initialize model client
+        model_client = OpenAIChatCompletionClient(model="gpt-4")
+        
+        # Create seller bank teams
+        for bank_name in self.config["seller_banks"]:
+            # Initialize budget for the organization
+            self.budget_manager.initialize_budget(bank_name, self.config["initial_budgets"]["seller_bank"])
+            
+            # Create agents for this bank
+            bank_agents = {
+                "analyst": create_agent(
+                    name=f"{bank_name}_Analyst",
+                    role="Analyst",
+                    organization=bank_name,
+                    model_client=model_client,
+                    artifact_manager=self.artifact_manager,
+                    tool_registry=self.tool_registry,
+                    budget_manager=self.budget_manager,
+                    action_logger=self.action_logger,
+                    quality_tracker=self.quality_tracker
+                ),
+                "structurer": create_agent(
+                    name=f"{bank_name}_Structurer",
+                    role="Structurer", 
+                    organization=bank_name,
+                    model_client=model_client,
+                    artifact_manager=self.artifact_manager,
+                    tool_registry=self.tool_registry,
+                    budget_manager=self.budget_manager,
+                    action_logger=self.action_logger,
+                    quality_tracker=self.quality_tracker
+                ),
+                "pm": create_agent(
+                    name=f"{bank_name}_PM",
+                    role="PM",
+                    organization=bank_name,
+                    model_client=model_client,
+                    artifact_manager=self.artifact_manager,
+                    tool_registry=self.tool_registry,
+                    budget_manager=self.budget_manager,
+                    action_logger=self.action_logger,
+                    quality_tracker=self.quality_tracker
+                )
+            }
+            
+            self.agents[bank_name] = bank_agents
+        
+        # Create buyer fund teams
+        for fund_name in self.config["buyer_funds"]:
+            # Initialize budget for the organization
+            self.budget_manager.initialize_budget(fund_name, self.config["initial_budgets"]["buyer_fund"])
+            
+            # Create agents for this fund
+            fund_agents = {
+                "risk_officer": create_agent(
+                    name=f"{fund_name}_RiskOfficer",
+                    role="Risk-Officer",
+                    organization=fund_name,
+                    model_client=model_client,
+                    artifact_manager=self.artifact_manager,
+                    tool_registry=self.tool_registry,
+                    budget_manager=self.budget_manager,
+                    action_logger=self.action_logger,
+                    quality_tracker=self.quality_tracker
+                ),
+                "trader": create_agent(
+                    name=f"{fund_name}_Trader",
+                    role="Trader",
+                    organization=fund_name,
+                    model_client=model_client,
+                    artifact_manager=self.artifact_manager,
+                    tool_registry=self.tool_registry,
+                    budget_manager=self.budget_manager,
+                    action_logger=self.action_logger,
+                    quality_tracker=self.quality_tracker
+                )
+            }
+            
+            self.agents[fund_name] = fund_agents
+    
+    def create_interaction_topology(self) -> nx.DiGraph:
+        """Create interaction graph for GraphGroupChat."""
+        G = nx.DiGraph()
+        
+        # Add all agents as nodes
+        all_agents = []
+        for org_agents in self.agents.values():
+            all_agents.extend(org_agents.values())
+        
+        for agent in all_agents:
+            G.add_node(agent)
+        
+        # Create intra-organization edges (full connectivity within teams)
+        for org_name, org_agents in self.agents.items():
+            agent_list = list(org_agents.values())
+            for i, agent1 in enumerate(agent_list):
+                for j, agent2 in enumerate(agent_list):
+                    if i != j:
+                        G.add_edge(agent1, agent2, weight=1.0)
+        
+        # Create inter-organization edges (limited connectivity between seller PMs and buyer traders)
+        seller_pms = []
+        buyer_traders = []
+        
+        for org_name, org_agents in self.agents.items():
+            if org_name in self.config["seller_banks"]:
+                seller_pms.append(org_agents["pm"])
+            elif org_name in self.config["buyer_funds"]:
+                buyer_traders.append(org_agents["trader"])
+        
+        # Connect seller PMs to buyer traders (market interactions)
+        for pm in seller_pms:
+            for trader in buyer_traders:
+                G.add_edge(pm, trader, weight=0.3)  # Lower frequency cross-org
+                G.add_edge(trader, pm, weight=0.3)
+        
+        return G
+    
+    async def run_round(self, round_number: int) -> Dict[str, Any]:
+        """Run a single round of the simulation."""
+        self.current_round = round_number
+        self.market_state["round"] = round_number
+        
+        print(f"\n=== ROUND {round_number} ===")
+        
+        # Create market situation message
+        market_message = self._create_market_message()
+        
+        round_results = {
+            "round": round_number,
+            "market_state": dict(self.market_state),
+            "trades": [],
+            "quality_metrics": {},
+            "budget_changes": {},
+            "actions": {"internal": [], "external": []}
+        }
+        
+        # Create interaction topology
+        topology = self.create_interaction_topology()
+        
+        # Create GraphGroupChat
+        team = GraphGroupChat(
+            graph=topology,
+            termination_condition=MaxMessageTermination(max_messages=20)
+        )
+        
+        print(f"Market Update: {market_message}")
+        
+        # Run the conversation
+        console = Console()
+        messages = []
+        async for message in team.run_stream(task=market_message):
+            print(f"{message.source}: {message.content}")
+            messages.append({
+                "source": message.source,
+                "content": message.content,
+                "timestamp": datetime.now().isoformat()
+            })
+        
+        # Process round results
+        round_results["conversation"] = messages
+        round_results = await self._process_round_results(round_results)
+        
+        return round_results
+    
+    def _create_market_message(self) -> str:
+        """Create the market situation message for the round."""
+        return f"""
+MARKET UPDATE - Round {self.current_round}
+
+Current Market Conditions:
+- Tech sector outlook: Growth potential with moderate volatility
+- Finance sector: Stable growth expectations
+- Healthcare: Steady performance expected
+- Base discount rate: {self.market_state['market_data']['discount_curve']['rate']}
+
+Your organizations should now:
+1. SELLERS: Analyze market conditions, price structured notes, and post offerings
+2. BUYERS: Assess available instruments and make investment decisions
+
+Remember:
+- Quality analysis requires appropriate tool usage
+- Budget constraints limit your analytical capabilities
+- Market actions are visible to competitors
+
+Begin your analysis and decision-making process. End with ROUND_COMPLETE when ready.
+"""
+    
+    async def _process_round_results(self, round_results: Dict[str, Any]) -> Dict[str, Any]:
+        """Process the results of a round."""
+        # Collect all actions from the logger
+        round_start = datetime.now().replace(hour=0, minute=0, second=0)
+        round_end = datetime.now()
+        
+        actions = self.action_logger.get_actions_by_timeframe(round_start, round_end)
+        round_results["actions"] = actions
+        
+        # Process external actions to identify trades
+        trades = []
+        posted_instruments = {}
+        
+        for action in actions["external"]:
+            if action["action"] == "post_price":
+                posted_instruments[action["actor"]] = {
+                    "price": action.get("price"),
+                    "instrument": action.get("good"),
+                    "actor": action["actor"]
+                }
+            elif action["action"] == "accept":
+                # Find corresponding posted instrument
+                for seller, instrument in posted_instruments.items():
+                    trade = {
+                        "seller": seller.split('.')[0],
+                        "buyer": action["actor"].split('.')[0],
+                        "instrument": instrument["instrument"],
+                        "price": instrument["price"],
+                        "timestamp": action["timestamp"]
+                    }
+                    trades.append(trade)
+        
+        round_results["trades"] = trades
+        
+        # Calculate quality metrics
+        quality_metrics = self.quality_tracker.get_quality_distribution()
+        round_results["quality_metrics"] = quality_metrics
+        
+        # Update market state
+        self.market_state["posted_instruments"].extend(list(posted_instruments.values()))
+        self.market_state["trade_history"].extend(trades)
+        
+        return round_results
+    
+    async def run_simulation(self) -> Dict[str, Any]:
+        """Run the complete simulation."""
+        print("Setting up Structured-Note Lemons simulation...")
+        
+        await self.setup_agents()
+        
+        print(f"Running {self.config['rounds']} rounds...")
+        
+        simulation_results = {
+            "config": self.config,
+            "rounds": [],
+            "summary": {}
+        }
+        
+        # Run all rounds
+        for round_num in range(1, self.config["rounds"] + 1):
+            round_result = await self.run_round(round_num)
+            simulation_results["rounds"].append(round_result)
+            self.round_results.append(round_result)
+        
+        # Generate final summary
+        simulation_results["summary"] = self._generate_summary()
+        
+        # Export results
+        await self._export_results(simulation_results)
+        
+        return simulation_results
+    
+    def _generate_summary(self) -> Dict[str, Any]:
+        """Generate simulation summary metrics."""
+        total_trades = sum(len(r["trades"]) for r in self.round_results)
+        
+        # Quality distribution across all rounds
+        all_quality_data = []
+        for round_result in self.round_results:
+            if "quality_metrics" in round_result and "distribution" in round_result["quality_metrics"]:
+                all_quality_data.append(round_result["quality_metrics"]["distribution"])
+        
+        # Budget analysis
+        budget_summary = self.budget_manager.get_budget_summary()
+        
+        # Action analysis
+        action_metrics = self.action_logger.calculate_metrics()
+        
+        return {
+            "total_rounds": len(self.round_results),
+            "total_trades": total_trades,
+            "average_trades_per_round": total_trades / max(len(self.round_results), 1),
+            "budget_summary": budget_summary,
+            "action_metrics": action_metrics,
+            "quality_patterns": self.quality_tracker.identify_quality_patterns()
+        }
+    
+    async def _export_results(self, results: Dict[str, Any]):
+        """Export simulation results to files."""
+        # Main results file
+        results_file = self.workspace_dir / "simulation_results.json"
+        with open(results_file, 'w') as f:
+            json.dump(results, f, indent=2)
+        
+        # Export action logs
+        self.action_logger.export_summary(self.workspace_dir / "action_summary.json")
+        
+        # Export quality report
+        self.quality_tracker.export_quality_report(self.workspace_dir / "quality_report.json")
+        
+        print(f"Results exported to {self.workspace_dir}")
+
+
+async def run_flagship_scenario(workspace_dir: Path, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Main entry point for running the flagship scenario."""
+    scenario = StructuredNoteLemonsScenario(workspace_dir, config)
+    return await scenario.run_simulation()
