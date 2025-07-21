@@ -1,25 +1,50 @@
+scenario:
+  type: "structured_note_lemons"
+  description: "Finance domain scenario with quality-driven adverse selection"
+
 agents:
-  count: 100
-  types:
-    - consumer
-    - producer
-    - trader
-  initial_wealth: 1000
+  seller_banks:
+    - "SellerBank1"
+    - "SellerBank2"
+  buyer_funds:
+    - "BuyerFund1"
+    - "BuyerFund2"
+  initial_budgets:
+    seller_bank: 20
+    buyer_fund: 10
 
 simulation:
-  steps: 1000
+  rounds: 10
+  output_frequency: 1
   random_seed: 42
-  output_frequency: 10
 
 economic:
-  market_type: "auction"
-  inflation_rate: 0.02
-  interest_rate: 0.05
-  volatility: 0.1
+  market_parameters:
+    base_notional: 100
+    discount_rate: 0.03
+    volatility: 0.15
+  sectors:
+    tech:
+      mean_growth: 0.08
+      volatility: 0.15
+    finance:
+      mean_growth: 0.06
+      volatility: 0.12
+    healthcare:
+      mean_growth: 0.07
+      volatility: 0.10
 
-environment:
-  resources:
-    - food
-    - energy
-    - technology
-  scarcity_factor: 0.8
+quality:
+  thresholds:
+    structured_note:
+      high_quality: 6.0
+      medium_quality: 3.0
+      tools: ["sector_forecast", "price_note", "reflect"]
+      weights:
+        sector_forecast: 0.5
+        price_note: 0.4
+        reflect: 0.1
+
+tools:
+  registry_file: "configs/tools.json"
+  precision_tiers: ["high", "med", "low"]

@@ -1,0 +1,70 @@
+{
+  "tools": [
+    {
+      "id": "sector_forecast",
+      "cost": 3,
+      "inputs": ["sector", "horizon"],
+      "outputs": ["forecast_report"],
+      "latency": 1,
+      "precision_tiers": {
+        "high": {"noise_factor": 0.1},
+        "med": {"noise_factor": 0.3},
+        "low": {"noise_factor": 0.6}
+      },
+      "description": "Generate sector growth forecast with configurable precision"
+    },
+    {
+      "id": "monte_carlo_var",
+      "cost": 2,
+      "inputs": ["portfolio"],
+      "outputs": ["var_report"],
+      "latency": 1,
+      "description": "Calculate portfolio Value at Risk using Monte Carlo simulation"
+    },
+    {
+      "id": "price_note",
+      "cost": 4,
+      "inputs": ["payoff_fn", "forecast", "discount_curve"],
+      "outputs": ["pricing_report"],
+      "latency": 1,
+      "precision_tiers": {
+        "high": {"error_factor": 0.01},
+        "med": {"error_factor": 0.05},
+        "low": {"error_factor": 0.10}
+      },
+      "description": "Price structured financial instrument"
+    },
+    {
+      "id": "doc_generate",
+      "cost": 1,
+      "inputs": ["params"],
+      "outputs": ["document"],
+      "latency": 1,
+      "description": "Generate product documentation"
+    },
+    {
+      "id": "share_artifact",
+      "cost": 0.2,
+      "inputs": ["artifact_id", "target"],
+      "outputs": ["share_confirmation"],
+      "latency": 1,
+      "description": "Share artifact with another agent"
+    },
+    {
+      "id": "kanban_update",
+      "cost": 0.1,
+      "inputs": ["task", "status"],
+      "outputs": ["board_state"],
+      "latency": 1,
+      "description": "Update team task board"
+    },
+    {
+      "id": "reflect",
+      "cost": 0.5,
+      "inputs": ["scratchpad"],
+      "outputs": ["reflection"],
+      "latency": 1,
+      "description": "Generate strategic reflection and planning"
+    }
+  ]
+}

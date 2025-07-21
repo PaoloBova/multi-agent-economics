@@ -7,20 +7,48 @@ stages:
     outs:
       - data/processed/
 
+  stages:
+  prepare_scenario:
+    cmd: python scripts/prepare_scenario.py
+    params:
+    - simulation_config.yaml:
+        - scenario
+        - agents
+        - simulation
+    outs:
+    - data/interim/scenario_config.json
+    - data/interim/agent_configs.json
+    - data/interim/market_data.json
+
   run_simulation:
     cmd: python scripts/run_simulation.py
     deps:
-      - data/processed/
-      - scripts/run_simulation.py
-      - multi_agent_economics/
+    - data/interim/scenario_config.json
+    - data/interim/agent_configs.json  
+    - data/interim/market_data.json
+    - multi_agent_economics/
     params:
-      - simulation_config.yaml:
-          - agents.count
-          - simulation.steps
-          - economic.market_type
+    - simulation_config.yaml:
+        - simulation.rounds
+        - simulation.output_frequency
     outs:
-      - results/simulation_output.csv
-      - results/agent_behaviors.json
+    - data/processed/simulation_results.json
+    - data/processed/action_logs/
+    - data/processed/artifacts/
+    - results/simulation_output.csv
+
+  analyze_results:
+    cmd: python scripts/analyze_results.py
+    deps:
+    - data/processed/simulation_results.json
+    - data/processed/action_logs/
+    outs:
+    - results/analysis/
+    - results/plots/
+    - results/agent_behaviors.json
+    metrics:
+    - results/analysis/summary.json:
+        cache: false
 
   analyze_results:
     cmd: python scripts/analyze_results.py
