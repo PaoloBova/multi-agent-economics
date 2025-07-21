@@ -5,9 +5,9 @@ This module contains various types of economic agents that can participate
 in simulations, including traders, consumers, producers, and market makers.
 """
 
-from .base import BaseAgent
-from .trader import TraderAgent
-from .consumer import ConsumerAgent
+from .economic_agent import EconomicAgent, create_agent
+
+__all__ = ["EconomicAgent", "create_agent"]
 from .producer import ProducerAgent
 
 __all__ = [
