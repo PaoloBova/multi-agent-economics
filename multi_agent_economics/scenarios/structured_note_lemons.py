@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
-from autogen_agentchat.teams import DiGraphBuilder, GraphFlow, RoundRobinGroupChat
+from autogen_agentchat.teams import DiGraphBuilder, GraphFlow
 from autogen_agentchat.conditions import MaxMessageTermination, TextMentionTermination
 from autogen_agentchat.ui import Console
 from autogen_ext.models.openai import OpenAIChatCompletionClient
@@ -208,8 +208,11 @@ class StructuredNoteLemonsScenario:
             self.agents[fund_name] = fund_agents
     
     def create_interaction_topology(self):
-        """Create interaction graph for GraphFlow."""
+        """Create interaction graph for GraphFlow using external topology configuration."""
         builder = DiGraphBuilder()
+        
+        # Load topology configuration
+        topology_config = self._load_topology_config()
         
         # Add all agents as nodes
         all_agents = []
@@ -219,31 +222,163 @@ class StructuredNoteLemonsScenario:
         for agent in all_agents:
             builder.add_node(agent)
         
-        # Create intra-organization edges (full connectivity within teams)
-        for org_name, org_agents in self.agents.items():
-            agent_list = list(org_agents.values())
-            for i, agent1 in enumerate(agent_list):
-                for j, agent2 in enumerate(agent_list):
-                    if i != j:
-                        builder.add_edge(agent1, agent2)
+        # Create intra-organization edges based on configuration
+        self._create_intra_org_edges(builder, topology_config)
         
-        # Create inter-organization edges (limited connectivity between seller PMs and buyer traders)
-        seller_pms = []
-        buyer_traders = []
-        
-        for org_name, org_agents in self.agents.items():
-            if org_name in self.config["seller_banks"]:
-                seller_pms.append(org_agents["pm"])
-            elif org_name in self.config["buyer_funds"]:
-                buyer_traders.append(org_agents["trader"])
-        
-        # Connect seller PMs to buyer traders (market interactions)
-        for pm in seller_pms:
-            for trader in buyer_traders:
-                builder.add_edge(pm, trader)
-                builder.add_edge(trader, pm)
+        # Create inter-organization edges based on configuration
+        self._create_inter_org_edges(builder, topology_config)
         
         return builder.build(), all_agents
+    
+    def _load_topology_config(self) -> Dict[str, Any]:
+        """Load interaction topology configuration from external file."""
+        topology_config_path = self.data_dir / "config" / "interaction_topology.json"
+        
+        # Default fallback configuration (current hardcoded behavior)
+        default_config = {
+            "default_topology": "structured_note_lemons",
+            "topologies": {
+                "structured_note_lemons": {
+                    "intra_organization": {"connectivity": "full_mesh"},
+                    "inter_organization": {
+                        "connectivity": "role_based",
+                        "rules": [{
+                            "source_orgs": "seller_banks",
+                            "source_roles": ["pm"],
+                            "target_orgs": "buyer_funds",
+                            "target_roles": ["trader"],
+                            "bidirectional": True
+                        }]
+                    }
+                }
+            }
+        }
+        
+        if topology_config_path.exists():
+            try:
+                with open(topology_config_path, 'r') as f:
+                    config = json.load(f)
+                print(f"Loaded interaction topology from {topology_config_path}")
+                return config
+            except Exception as e:
+                print(f"Warning: Could not load topology config from {topology_config_path}: {e}")
+                print("Using default topology configuration")
+        else:
+            print(f"No topology config found at {topology_config_path}, using defaults")
+        
+        return default_config
+    
+    def _create_intra_org_edges(self, builder: DiGraphBuilder, topology_config: Dict[str, Any]):
+        """Create edges within organizations based on topology configuration."""
+        topology_name = topology_config.get("default_topology", "structured_note_lemons")
+        topology = topology_config["topologies"][topology_name]
+        intra_config = topology["intra_organization"]
+        
+        connectivity = intra_config.get("connectivity", "full_mesh")
+        default_weight = intra_config.get("default_weight", 1.0)
+        role_weights = intra_config.get("role_weights", {})
+        
+        for org_name, org_agents in self.agents.items():
+            if connectivity == "full_mesh":
+                # Full connectivity within organization
+                agent_list = list(org_agents.values())
+                for i, agent1 in enumerate(agent_list):
+                    for j, agent2 in enumerate(agent_list):
+                        if i != j:
+                            # Determine edge weight based on roles
+                            role1 = self._get_agent_role(agent1)
+                            role2 = self._get_agent_role(agent2)
+                            edge_key = f"{role1}->{role2}"
+                            weight = role_weights.get(edge_key, default_weight)
+                            
+                            builder.add_edge(agent1, agent2, weight=weight)
+            
+            elif connectivity == "hub_and_spoke":
+                # Hub and spoke within organization
+                hub_role = intra_config.get("hub_role", "pm")
+                hub_weight = intra_config.get("hub_weight", 0.9)
+                spoke_weight = intra_config.get("spoke_weight", 0.6)
+                
+                if hub_role in org_agents:
+                    hub_agent = org_agents[hub_role]
+                    for role, agent in org_agents.items():
+                        if role != hub_role:
+                            builder.add_edge(hub_agent, agent, weight=hub_weight)
+                            builder.add_edge(agent, hub_agent, weight=spoke_weight)
+    
+    def _get_agent_role(self, agent) -> str:
+        """Extract the role from an agent's name."""
+        agent_name = agent.name
+        # Agent names are like "SellerBank1_Analyst"
+        if "_" in agent_name:
+            return agent_name.split("_")[-1].lower()
+        return "unknown"
+    
+    def _create_inter_org_edges(self, builder: DiGraphBuilder, topology_config: Dict[str, Any]):
+        """Create edges between organizations based on topology configuration."""
+        topology_name = topology_config.get("default_topology", "structured_note_lemons")
+        topology = topology_config["topologies"][topology_name]
+        inter_config = topology["inter_organization"]
+        
+        connectivity = inter_config.get("connectivity", "role_based")
+        
+        if connectivity == "full_mesh":
+            # Everyone can talk to everyone across organizations
+            all_agents = []
+            for org_agents in self.agents.values():
+                all_agents.extend(org_agents.values())
+            
+            for i, agent1 in enumerate(all_agents):
+                for j, agent2 in enumerate(all_agents):
+                    if i != j and self._get_agent_org(agent1) != self._get_agent_org(agent2):
+                        builder.add_edge(agent1, agent2)
+        
+        elif connectivity == "role_based":
+            # Role-based connectivity rules
+            rules = inter_config.get("rules", [])
+            for rule in rules:
+                self._apply_connectivity_rule(builder, rule)
+    
+    def _apply_connectivity_rule(self, builder: DiGraphBuilder, rule: Dict[str, Any]):
+        """Apply a single connectivity rule between organizations."""
+        source_org_type = rule["source_orgs"]  # e.g., "seller_banks"
+        source_roles = rule["source_roles"]    # e.g., ["pm"]
+        target_org_type = rule["target_orgs"]  # e.g., "buyer_funds" 
+        target_roles = rule["target_roles"]    # e.g., ["trader"]
+        bidirectional = rule.get("bidirectional", True)
+        weight = rule.get("weight", 1.0)
+        
+        # Get source agents
+        source_agents = []
+        for org_name, org_agents in self.agents.items():
+            if org_name in self.config.get(source_org_type, []):
+                for role in source_roles:
+                    if role in org_agents:
+                        source_agents.append(org_agents[role])
+        
+        # Get target agents
+        target_agents = []
+        for org_name, org_agents in self.agents.items():
+            if org_name in self.config.get(target_org_type, []):
+                for role in target_roles:
+                    if role in org_agents:
+                        target_agents.append(org_agents[role])
+        
+        # Create edges with weights
+        for source_agent in source_agents:
+            for target_agent in target_agents:
+                builder.add_edge(source_agent, target_agent, weight=weight)
+                if bidirectional:
+                    builder.add_edge(target_agent, source_agent, weight=weight)
+    
+    def _get_agent_org(self, agent) -> str:
+        """Get the organization name for an agent."""
+        agent_name = agent.name
+        for org_name, org_agents in self.agents.items():
+            for role_agent in org_agents.values():
+                if role_agent.name == agent_name:
+                    return org_name
+        return "unknown"
     
     async def run_round(self, round_number: int) -> Dict[str, Any]:
         """Run a single round of the simulation."""
@@ -270,7 +405,7 @@ class StructuredNoteLemonsScenario:
         # Create GraphFlow team
         team = GraphFlow(
             participants=all_agents,
-            graph=graph
+            termination_condition=MaxMessageTermination(max_messages=20)
         )
         
         print(f"Market Update: {market_message}")

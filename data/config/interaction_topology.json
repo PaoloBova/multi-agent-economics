@@ -1,0 +1,84 @@
+{
+  "description": "Defines interaction topology for multi-agent scenarios",
+  "default_topology": "structured_note_lemons",
+  "topologies": {
+    "structured_note_lemons": {
+      "description": "Structured note market with seller banks and buyer funds",
+      "intra_organization": {
+        "connectivity": "full_mesh",
+        "description": "All agents within an organization can communicate",
+        "default_weight": 0.8,
+        "role_weights": {
+          "analyst->structurer": 0.9,
+          "structurer->pm": 0.9,
+          "risk_officer->trader": 0.9
+        }
+      },
+      "inter_organization": {
+        "connectivity": "role_based",
+        "description": "Cross-organization communication limited by roles",
+        "default_weight": 0.3,
+        "rules": [
+          {
+            "source_orgs": "seller_banks",
+            "source_roles": ["pm"],
+            "target_orgs": "buyer_funds", 
+            "target_roles": ["trader"],
+            "bidirectional": true,
+            "weight": 0.7,
+            "description": "Portfolio managers negotiate with traders"
+          },
+          {
+            "source_orgs": "seller_banks",
+            "source_roles": ["analyst"],
+            "target_orgs": "buyer_funds",
+            "target_roles": ["risk_officer"],
+            "bidirectional": true,
+            "weight": 0.4,
+            "description": "Analysts can share market insights with risk officers"
+          }
+        ]
+      }
+    },
+    "full_connectivity": {
+      "description": "Everyone can talk to everyone (testing topology)",
+      "intra_organization": {
+        "connectivity": "full_mesh",
+        "default_weight": 1.0
+      },
+      "inter_organization": {
+        "connectivity": "full_mesh",
+        "description": "All agents can communicate across organizations",
+        "default_weight": 0.5
+      }
+    },
+    "hub_and_spoke": {
+      "description": "Central hub with spoke agents",
+      "intra_organization": {
+        "connectivity": "hub_and_spoke",
+        "hub_role": "pm",
+        "hub_weight": 0.9,
+        "spoke_weight": 0.6,
+        "description": "PM acts as hub, others are spokes"
+      },
+      "inter_organization": {
+        "connectivity": "hub_only",
+        "description": "Only hub agents communicate across organizations",
+        "rules": [
+          {
+            "source_orgs": "seller_banks",
+            "source_roles": ["pm"],
+            "target_orgs": "buyer_funds",
+            "target_roles": ["trader"],
+            "bidirectional": true,
+            "weight": 0.8
+          }
+        ]
+      }
+    }
+  },
+  "role_mappings": {
+    "seller_banks": ["analyst", "structurer", "pm"],
+    "buyer_funds": ["risk_officer", "trader"]
+  }
+}

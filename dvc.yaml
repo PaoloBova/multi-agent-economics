@@ -14,6 +14,7 @@ stages:
       - data/config/enhanced_tools.json
       - data/config/quality_thresholds.json
       - data/config/tool_parameters.json
+      - data/config/interaction_topology.json
       - data/market_data/sector_growth_rates.json
       - data/prompts/base_agent_prompt.md
       - data/prompts/role_definitions.json
