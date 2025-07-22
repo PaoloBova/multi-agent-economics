@@ -24,13 +24,29 @@ def test_core_infrastructure():
     workspace_dir = Path("test_workspace")
     workspace_dir.mkdir(exist_ok=True)
     
+    # Setup data paths
+    data_dir = Path(__file__).parent / "data"
+    tool_config_path = data_dir / "config" / "enhanced_tools.json"
+    market_data_path = data_dir / "market_data" / "sector_growth_rates.json"
+    tool_params_path = data_dir / "config" / "tool_parameters.json"
+    quality_config_path = data_dir / "config" / "quality_thresholds.json"
+    
     # Initialize components
     print("1. Initializing components...")
     artifact_manager = ArtifactManager(workspace_dir / "artifacts")
-    tool_registry = ToolRegistry()
+    
+    tool_registry = ToolRegistry(
+        config_path=tool_config_path if tool_config_path.exists() else None,
+        market_data_path=market_data_path if market_data_path.exists() else None,
+        tool_params_path=tool_params_path if tool_params_path.exists() else None
+    )
+    
     action_logger = ActionLogger(workspace_dir / "logs")
     budget_manager = BudgetManager()
-    quality_function = QualityFunction()
+    
+    quality_function = QualityFunction(
+        config_path=quality_config_path if quality_config_path.exists() else None
+    )
     quality_tracker = QualityTracker(quality_function)
     
     print("✓ All components initialized successfully")

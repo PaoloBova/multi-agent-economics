@@ -28,19 +28,39 @@ from ..agents import create_agent
 class StructuredNoteLemonsScenario:
     """Flagship scenario: Structured-Note Lemons market simulation."""
     
-    def __init__(self, workspace_dir: Path, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, workspace_dir: Path, config: Optional[Dict[str, Any]] = None,
+                 data_dir: Optional[Path] = None):
         self.workspace_dir = Path(workspace_dir)
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Data directory for configurations
+        self.data_dir = data_dir or Path(__file__).parent.parent.parent / "data"
         
         # Load configuration
         self.config = config or self._default_config()
         
-        # Initialize core systems
+        # Initialize core systems with data paths
         self.artifact_manager = ArtifactManager(self.workspace_dir / "artifacts")
-        self.tool_registry = ToolRegistry()
+        
+        # Initialize tool registry with data paths
+        tool_config_path = self.data_dir / "config" / "enhanced_tools.json"
+        market_data_path = self.data_dir / "market_data" / "sector_growth_rates.json"
+        tool_params_path = self.data_dir / "config" / "tool_parameters.json"
+        
+        self.tool_registry = ToolRegistry(
+            config_path=tool_config_path if tool_config_path.exists() else None,
+            market_data_path=market_data_path if market_data_path.exists() else None,
+            tool_params_path=tool_params_path if tool_params_path.exists() else None
+        )
+        
         self.action_logger = ActionLogger(self.workspace_dir / "logs")
         self.budget_manager = BudgetManager()
-        self.quality_function = QualityFunction()
+        
+        # Initialize quality function with configuration
+        quality_config_path = self.data_dir / "config" / "quality_thresholds.json"
+        self.quality_function = QualityFunction(
+            config_path=quality_config_path if quality_config_path.exists() else None
+        )
         self.quality_tracker = QualityTracker(self.quality_function)
         
         # Market state
@@ -100,6 +120,9 @@ class StructuredNoteLemonsScenario:
             self.budget_manager.initialize_budget(bank_name, self.config["initial_budgets"]["seller_bank"])
             
             # Create agents for this bank
+            prompt_templates_path = self.data_dir / "prompts"
+            role_definitions_path = self.data_dir / "prompts" / "role_definitions.json"
+            
             bank_agents = {
                 "analyst": create_agent(
                     name=f"{bank_name}_Analyst",
@@ -110,7 +133,9 @@ class StructuredNoteLemonsScenario:
                     tool_registry=self.tool_registry,
                     budget_manager=self.budget_manager,
                     action_logger=self.action_logger,
-                    quality_tracker=self.quality_tracker
+                    quality_tracker=self.quality_tracker,
+                    prompt_templates_path=prompt_templates_path,
+                    role_definitions_path=role_definitions_path
                 ),
                 "structurer": create_agent(
                     name=f"{bank_name}_Structurer",
@@ -121,7 +146,9 @@ class StructuredNoteLemonsScenario:
                     tool_registry=self.tool_registry,
                     budget_manager=self.budget_manager,
                     action_logger=self.action_logger,
-                    quality_tracker=self.quality_tracker
+                    quality_tracker=self.quality_tracker,
+                    prompt_templates_path=prompt_templates_path,
+                    role_definitions_path=role_definitions_path
                 ),
                 "pm": create_agent(
                     name=f"{bank_name}_PM",
@@ -132,7 +159,9 @@ class StructuredNoteLemonsScenario:
                     tool_registry=self.tool_registry,
                     budget_manager=self.budget_manager,
                     action_logger=self.action_logger,
-                    quality_tracker=self.quality_tracker
+                    quality_tracker=self.quality_tracker,
+                    prompt_templates_path=prompt_templates_path,
+                    role_definitions_path=role_definitions_path
                 )
             }
             
@@ -144,6 +173,9 @@ class StructuredNoteLemonsScenario:
             self.budget_manager.initialize_budget(fund_name, self.config["initial_budgets"]["buyer_fund"])
             
             # Create agents for this fund
+            prompt_templates_path = self.data_dir / "prompts"
+            role_definitions_path = self.data_dir / "prompts" / "role_definitions.json"
+            
             fund_agents = {
                 "risk_officer": create_agent(
                     name=f"{fund_name}_RiskOfficer",
@@ -154,7 +186,9 @@ class StructuredNoteLemonsScenario:
                     tool_registry=self.tool_registry,
                     budget_manager=self.budget_manager,
                     action_logger=self.action_logger,
-                    quality_tracker=self.quality_tracker
+                    quality_tracker=self.quality_tracker,
+                    prompt_templates_path=prompt_templates_path,
+                    role_definitions_path=role_definitions_path
                 ),
                 "trader": create_agent(
                     name=f"{fund_name}_Trader",
@@ -165,7 +199,9 @@ class StructuredNoteLemonsScenario:
                     tool_registry=self.tool_registry,
                     budget_manager=self.budget_manager,
                     action_logger=self.action_logger,
-                    quality_tracker=self.quality_tracker
+                    quality_tracker=self.quality_tracker,
+                    prompt_templates_path=prompt_templates_path,
+                    role_definitions_path=role_definitions_path
                 )
             }
             

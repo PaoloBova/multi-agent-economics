@@ -21,7 +21,10 @@ class EconomicAgent(AssistantAgent):
     def __init__(self, name: str, model_client, role: str, organization: str,
                  artifact_manager: ArtifactManager, tool_registry: ToolRegistry,
                  budget_manager: BudgetManager, action_logger: ActionLogger,
-                 quality_tracker: QualityTracker, **kwargs):
+                 quality_tracker: QualityTracker, 
+                 prompt_templates_path: Optional[Path] = None,
+                 role_definitions_path: Optional[Path] = None,
+                 **kwargs):
         
         self.role = role
         self.organization = organization
@@ -33,6 +36,10 @@ class EconomicAgent(AssistantAgent):
         self.budget_manager = budget_manager
         self.action_logger = action_logger
         self.quality_tracker = quality_tracker
+        
+        # Load prompt templates and role definitions
+        self.prompt_templates_path = prompt_templates_path
+        self.role_definitions_path = role_definitions_path
         
         # Get or create workspace
         self.workspace = artifact_manager.get_workspace(organization)
@@ -54,8 +61,25 @@ class EconomicAgent(AssistantAgent):
         )
     
     def _build_system_message(self) -> str:
-        """Build role-specific system message."""
-        base_message = f"""You are {self.role} at {self.organization}, an economic agent in a financial simulation.
+        """Build role-specific system message from external templates."""
+        
+        # Load base prompt template
+        base_message = self._load_base_prompt_template()
+        
+        # Load role-specific guidance
+        role_guidance = self._load_role_guidance()
+        
+        return base_message + "\n\n" + role_guidance
+    
+    def _load_base_prompt_template(self) -> str:
+        """Load base prompt template from file or use fallback."""
+        if self.prompt_templates_path and (self.prompt_templates_path / "base_agent_prompt.md").exists():
+            with open(self.prompt_templates_path / "base_agent_prompt.md", 'r') as f:
+                template = f.read()
+                return template.format(role=self.role, organization=self.organization)
+        
+        # Fallback template
+        return f"""You are {self.role} at {self.organization}, an economic agent in a financial simulation.
 
 Your responsibilities:
 - Make strategic decisions using available tools
@@ -75,8 +99,22 @@ Remember:
 - External actions affect the market and are visible to competitors
 
 Your goal is to maximize your organization's profits while maintaining high quality standards."""
+    
+    def _load_role_guidance(self) -> str:
+        """Load role-specific guidance from file or use fallback."""
+        if self.role_definitions_path and self.role_definitions_path.exists():
+            try:
+                with open(self.role_definitions_path, 'r') as f:
+                    role_definitions = json.load(f)
+                
+                role_info = role_definitions.get(self.role, {})
+                if role_info:
+                    responsibilities = "\n".join(f"- {resp}" for resp in role_info.get("responsibilities", []))
+                    return f"As a {self.role}, you:\n{responsibilities}"
+            except Exception:
+                pass  # Fall back to hardcoded definitions
         
-        # Add role-specific guidance
+        # Fallback role guidance
         role_guidance = {
             "Analyst": """
 As an Analyst, you:
@@ -114,7 +152,7 @@ As a Trader, you:
 - Coordinate with Risk Officers on position sizing"""
         }
         
-        return base_message + "\n\n" + role_guidance.get(self.role, "")
+        return role_guidance.get(self.role, "")
     
     def _build_tool_functions(self) -> List[Callable]:
         """Build AutoGen-compatible tool functions."""
@@ -249,7 +287,9 @@ As a Trader, you:
 def create_agent(name: str, role: str, organization: str, model_client,
                 artifact_manager: ArtifactManager, tool_registry: ToolRegistry,
                 budget_manager: BudgetManager, action_logger: ActionLogger,
-                quality_tracker: QualityTracker) -> EconomicAgent:
+                quality_tracker: QualityTracker,
+                prompt_templates_path: Optional[Path] = None,
+                role_definitions_path: Optional[Path] = None) -> EconomicAgent:
     """Factory function to create economic agents."""
     
     return EconomicAgent(
@@ -261,5 +301,7 @@ def create_agent(name: str, role: str, organization: str, model_client,
         tool_registry=tool_registry,
         budget_manager=budget_manager,
         action_logger=action_logger,
-        quality_tracker=quality_tracker
+        quality_tracker=quality_tracker,
+        prompt_templates_path=prompt_templates_path,
+        role_definitions_path=role_definitions_path
     )

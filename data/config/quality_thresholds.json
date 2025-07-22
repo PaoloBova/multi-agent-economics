@@ -1,0 +1,23 @@
+{
+  "product_types": {
+    "structured_note": {
+      "high_quality_threshold": 6.0,
+      "medium_quality_threshold": 3.0,
+      "quality_tools": ["sector_forecast", "price_note", "reflect"],
+      "weights": {
+        "sector_forecast": 0.5,
+        "price_note": 0.4,
+        "reflect": 0.1
+      }
+    },
+    "generic_financial": {
+      "high_quality_threshold": 4.0,
+      "medium_quality_threshold": 2.0,
+      "quality_tools": ["monte_carlo_var", "reflect"],
+      "weights": {
+        "monte_carlo_var": 0.8,
+        "reflect": 0.2
+      }
+    }
+  }
+}

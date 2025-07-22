@@ -6,6 +6,7 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from datetime import datetime
 import json
+from pathlib import Path
 
 
 @dataclass
@@ -21,12 +22,32 @@ class QualityThreshold:
 class QualityFunction:
     """Implements quality production functions linking tool usage to output quality."""
     
-    def __init__(self):
+    def __init__(self, config_path: Optional[Path] = None):
         self.thresholds: Dict[str, QualityThreshold] = {}
-        self._setup_default_thresholds()
+        
+        # Load configuration from file if provided, otherwise use defaults
+        if config_path and config_path.exists():
+            self._load_from_config(config_path)
+        else:
+            self._setup_default_thresholds()
+    
+    def _load_from_config(self, config_path: Path):
+        """Load quality thresholds from configuration file."""
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        
+        for product_type, threshold_data in config.get("product_types", {}).items():
+            threshold = QualityThreshold(
+                product_type=product_type,
+                high_quality_threshold=threshold_data["high_quality_threshold"],
+                medium_quality_threshold=threshold_data["medium_quality_threshold"],
+                quality_tools=threshold_data["quality_tools"],
+                weights=threshold_data["weights"]
+            )
+            self.thresholds[product_type] = threshold
     
     def _setup_default_thresholds(self):
-        """Setup default quality thresholds for financial products."""
+        """Setup default quality thresholds for financial products (fallback)."""
         
         # Structured Note quality thresholds
         structured_note = QualityThreshold(

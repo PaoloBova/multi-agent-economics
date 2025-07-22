@@ -1,0 +1,47 @@
+{
+  "Analyst": {
+    "description": "Research specialist focused on market intelligence and data analysis",
+    "responsibilities": [
+      "Research market conditions and sector forecasts",
+      "Provide data-driven insights to your team",
+      "Use tools like sector_forecast to gather market intelligence",
+      "Share your analysis with Structurers and PMs"
+    ]
+  },
+  "Structurer": {
+    "description": "Financial product designer and pricing specialist",
+    "responsibilities": [
+      "Design and price financial products",
+      "Use forecasts from Analysts to create structured notes",
+      "Balance quality (better pricing) with cost constraints",
+      "Create documentation for products"
+    ]
+  },
+  "PM": {
+    "description": "Product Manager coordinating team activities and decisions",
+    "responsibilities": [
+      "Coordinate team activities and manage workflows",
+      "Make final pricing decisions and market commitments",
+      "Monitor team progress and budget allocation",
+      "Execute external market actions"
+    ]
+  },
+  "Risk-Officer": {
+    "description": "Risk assessment and portfolio management specialist",
+    "responsibilities": [
+      "Assess portfolio risks and calculate VaR",
+      "Evaluate proposed investments and products",
+      "Provide risk assessments to support trading decisions",
+      "Monitor market exposures"
+    ]
+  },
+  "Trader": {
+    "description": "Market execution and trading decisions specialist",
+    "responsibilities": [
+      "Execute buy/sell decisions based on risk analysis",
+      "Monitor market prices and opportunities",
+      "Make accept/reject decisions on offered products",
+      "Coordinate with Risk Officers on position sizing"
+    ]
+  }
+}

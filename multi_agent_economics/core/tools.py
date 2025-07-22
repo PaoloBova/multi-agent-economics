@@ -31,9 +31,15 @@ class Tool:
 class ToolRegistry:
     """Registry of all available tools, loaded from JSON configuration."""
     
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(self, config_path: Optional[Path] = None, 
+                 market_data_path: Optional[Path] = None,
+                 tool_params_path: Optional[Path] = None):
         self.tools: Dict[str, Tool] = {}
         self.tool_functions: Dict[str, Callable] = {}
+        
+        # Load configurations
+        self.market_data = self._load_market_data(market_data_path)
+        self.tool_params = self._load_tool_parameters(tool_params_path)
         
         if config_path and config_path.exists():
             self.load_from_file(config_path)
@@ -41,10 +47,70 @@ class ToolRegistry:
         # Register built-in tools
         self._register_builtin_tools()
     
+    def _load_market_data(self, market_data_path: Optional[Path]) -> Dict[str, Any]:
+        """Load market data from file or use defaults."""
+        if market_data_path and market_data_path.exists():
+            with open(market_data_path, 'r') as f:
+                return json.load(f)
+        
+        # Default fallback data
+        return {
+            "sectors": {
+                "tech": {"mean": 0.08, "std": 0.15},
+                "finance": {"mean": 0.06, "std": 0.12},
+                "healthcare": {"mean": 0.07, "std": 0.10},
+                "energy": {"mean": 0.04, "std": 0.20}
+            },
+            "default_sector": {"mean": 0.05, "std": 0.15}
+        }
+    
+    def _load_tool_parameters(self, tool_params_path: Optional[Path]) -> Dict[str, Any]:
+        """Load tool parameters from file or use defaults."""
+        if tool_params_path and tool_params_path.exists():
+            with open(tool_params_path, 'r') as f:
+                return json.load(f)
+        
+        # Default fallback parameters
+        return {
+            "precision_tiers": {
+                "high": {"noise_factor": 0.1},
+                "med": {"noise_factor": 0.3},
+                "low": {"noise_factor": 0.6}
+            },
+            "error_factors": {
+                "high": 0.01,
+                "med": 0.05,
+                "low": 0.10
+            },
+            "noise_multipliers": {
+                "high": 0.1,
+                "med": 0.3,
+                "low": 0.6
+            }
+        }
+    
     def load_from_file(self, config_path: Path):
         """Load tool definitions from JSON file."""
         with open(config_path, 'r') as f:
             data = json.load(f)
+        
+        # Load additional configuration parameters if present
+        if "monte_carlo_config" in data:
+            self.monte_carlo_config = data["monte_carlo_config"]
+        else:
+            self.monte_carlo_config = {
+                "n_simulations": 10000,
+                "default_volatility": 0.15,
+                "confidence_level": 0.95
+            }
+        
+        if "pricing_config" in data:
+            self.pricing_config = data["pricing_config"]
+        else:
+            self.pricing_config = {
+                "default_notional": 100,
+                "default_discount_rate": 0.03
+            }
         
         for tool_data in data.get("tools", []):
             tool = Tool.from_dict(tool_data)
@@ -69,18 +135,13 @@ class ToolRegistry:
         # Sector forecast tool
         def sector_forecast(sector: str, horizon: int, tier: str = "med") -> Dict[str, Any]:
             """Generate sector growth forecast with configurable precision."""
-            # Ground truth parameters (would be loaded from data)
-            true_growth_rates = {
-                "tech": {"mean": 0.08, "std": 0.15},
-                "finance": {"mean": 0.06, "std": 0.12},
-                "healthcare": {"mean": 0.07, "std": 0.10},
-                "energy": {"mean": 0.04, "std": 0.20}
-            }
+            # Use loaded market data
+            sectors_data = self.market_data.get("sectors", {})
+            default_data = self.market_data.get("default_sector", {"mean": 0.05, "std": 0.15})
+            base_params = sectors_data.get(sector, default_data)
             
-            base_params = true_growth_rates.get(sector, {"mean": 0.05, "std": 0.15})
-            
-            # Add noise based on precision tier
-            noise_multipliers = {"high": 0.1, "med": 0.3, "low": 0.6}
+            # Add noise based on precision tier using loaded parameters
+            noise_multipliers = self.tool_params.get("noise_multipliers", {"high": 0.1, "med": 0.3, "low": 0.6})
             noise_factor = noise_multipliers.get(tier, 0.3)
             
             # Generate forecast
@@ -101,10 +162,16 @@ class ToolRegistry:
         # Monte Carlo VaR tool
         def monte_carlo_var(portfolio: Dict[str, Any], confidence: float = 0.95) -> Dict[str, Any]:
             """Calculate Value at Risk using Monte Carlo simulation."""
-            # Simplified VaR calculation
-            n_simulations = 10000
+            # Use configuration from loaded data
+            config = getattr(self, 'monte_carlo_config', {
+                "n_simulations": 10000,
+                "default_volatility": 0.15,
+                "confidence_level": 0.95
+            })
+            
+            n_simulations = config.get("n_simulations", 10000)
             portfolio_value = portfolio.get("value", 1000000)
-            volatility = portfolio.get("volatility", 0.15)
+            volatility = portfolio.get("volatility", config.get("default_volatility", 0.15))
             
             # Generate random returns
             returns = np.random.normal(0, volatility, n_simulations)
@@ -131,8 +198,8 @@ class ToolRegistry:
             growth_factor = np.mean(forecast.get("forecast", [0.05]))
             discount_rate = discount_curve.get("rate", 0.03)
             
-            # Add pricing error based on tier
-            error_factors = {"high": 0.01, "med": 0.05, "low": 0.10}
+            # Add pricing error based on tier using loaded parameters
+            error_factors = self.tool_params.get("error_factors", {"high": 0.01, "med": 0.05, "low": 0.10})
             error = np.random.normal(0, error_factors.get(tier, 0.05))
             
             fair_price = base_price * (1 + growth_factor) / (1 + discount_rate)

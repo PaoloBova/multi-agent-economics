@@ -1,0 +1,17 @@
+{
+  "precision_tiers": {
+    "high": {"noise_factor": 0.1},
+    "med": {"noise_factor": 0.3},
+    "low": {"noise_factor": 0.6}
+  },
+  "error_factors": {
+    "high": 0.01,
+    "med": 0.05,
+    "low": 0.10
+  },
+  "noise_multipliers": {
+    "high": 0.1,
+    "med": 0.3,
+    "low": 0.6
+  }
+}

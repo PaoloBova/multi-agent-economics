@@ -19,7 +19,7 @@
       "inputs": ["portfolio"],
       "outputs": ["var_report"],
       "latency": 1,
-      "description": "Calculate portfolio Value at Risk using Monte Carlo simulation"
+      "description": "Calculate portfolio VaR using Monte Carlo simulation"
     },
     {
       "id": "price_note",
@@ -28,19 +28,10 @@
       "outputs": ["pricing_report"],
       "latency": 1,
       "precision_tiers": {
-        "high": {"error_factor": 0.01},
-        "med": {"error_factor": 0.05},
-        "low": {"error_factor": 0.10}
+        "high": {},
+        "med": {}
       },
-      "description": "Price structured financial instrument"
-    },
-    {
-      "id": "doc_generate",
-      "cost": 1,
-      "inputs": ["params"],
-      "outputs": ["document"],
-      "latency": 1,
-      "description": "Generate product documentation"
+      "description": "Price structured financial instrument with configurable precision"
     },
     {
       "id": "share_artifact",
@@ -51,14 +42,6 @@
       "description": "Share artifact with another agent"
     },
     {
-      "id": "kanban_update",
-      "cost": 0.1,
-      "inputs": ["task", "status"],
-      "outputs": ["board_state"],
-      "latency": 1,
-      "description": "Update team task board"
-    },
-    {
       "id": "reflect",
       "cost": 0.5,
       "inputs": ["scratchpad"],
@@ -66,5 +49,14 @@
       "latency": 1,
       "description": "Generate strategic reflection and planning"
     }
-  ]
+  ],
+  "monte_carlo_config": {
+    "n_simulations": 10000,
+    "default_volatility": 0.15,
+    "confidence_level": 0.95
+  },
+  "pricing_config": {
+    "default_notional": 100,
+    "default_discount_rate": 0.03
+  }
 }
