@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
-from autogen_agentchat.teams import RoundRobinGroupChat
+from autogen_agentchat.teams import DiGraphBuilder, GraphFlow, RoundRobinGroupChat
 from autogen_agentchat.conditions import MaxMessageTermination, TextMentionTermination
 from autogen_agentchat.ui import Console
 from autogen_ext.models.openai import OpenAIChatCompletionClient
@@ -208,13 +208,42 @@ class StructuredNoteLemonsScenario:
             self.agents[fund_name] = fund_agents
     
     def create_interaction_topology(self):
-        """Create list of participants for RoundRobinGroupChat."""
-        # Add all agents as participants
+        """Create interaction graph for GraphFlow."""
+        builder = DiGraphBuilder()
+        
+        # Add all agents as nodes
         all_agents = []
         for org_agents in self.agents.values():
             all_agents.extend(org_agents.values())
         
-        return all_agents
+        for agent in all_agents:
+            builder.add_node(agent)
+        
+        # Create intra-organization edges (full connectivity within teams)
+        for org_name, org_agents in self.agents.items():
+            agent_list = list(org_agents.values())
+            for i, agent1 in enumerate(agent_list):
+                for j, agent2 in enumerate(agent_list):
+                    if i != j:
+                        builder.add_edge(agent1, agent2)
+        
+        # Create inter-organization edges (limited connectivity between seller PMs and buyer traders)
+        seller_pms = []
+        buyer_traders = []
+        
+        for org_name, org_agents in self.agents.items():
+            if org_name in self.config["seller_banks"]:
+                seller_pms.append(org_agents["pm"])
+            elif org_name in self.config["buyer_funds"]:
+                buyer_traders.append(org_agents["trader"])
+        
+        # Connect seller PMs to buyer traders (market interactions)
+        for pm in seller_pms:
+            for trader in buyer_traders:
+                builder.add_edge(pm, trader)
+                builder.add_edge(trader, pm)
+        
+        return builder.build(), all_agents
     
     async def run_round(self, round_number: int) -> Dict[str, Any]:
         """Run a single round of the simulation."""
@@ -236,19 +265,23 @@ class StructuredNoteLemonsScenario:
         }
         
         # Create interaction topology
-        all_agents = self.create_interaction_topology()
+        graph, all_agents = self.create_interaction_topology()
         
-        # Create RoundRobinGroupChat team
-        team = RoundRobinGroupChat(
+        # Create GraphFlow team
+        team = GraphFlow(
             participants=all_agents,
-            termination_condition=MaxMessageTermination(max_messages=20)
+            graph=graph
         )
         
         print(f"Market Update: {market_message}")
         
-        # Run the conversation
+        # Run the conversation with termination condition
         console = Console()
         messages = []
+        
+        # Simple termination after max messages or when ROUND_COMPLETE is mentioned
+        max_messages = 20
+        message_count = 0
         
         async for message in team.run_stream(task=market_message):
             print(f"{message.source}: {message.content}")
@@ -257,6 +290,10 @@ class StructuredNoteLemonsScenario:
                 "content": message.content,
                 "timestamp": datetime.now().isoformat()
             })
+            
+            message_count += 1
+            if message_count >= max_messages or "ROUND_COMPLETE" in message.content:
+                break
         
         # Process round results
         round_results["conversation"] = messages
