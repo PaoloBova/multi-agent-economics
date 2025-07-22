@@ -13,7 +13,10 @@ __email__ = "paolobova@proton.me"
 from .core import (
     ArtifactManager, ToolRegistry, ActionLogger,
     BudgetManager, QualityTracker, QualityFunction,
-    Artifact, Tool, InternalAction, ExternalAction
+    Artifact, Tool, InternalAction, ExternalAction,
+    WorkspaceMemory,
+    load_artifact, unload_artifact, write_artifact, 
+    share_artifact, list_artifacts
 )
 
 # Agent framework
@@ -27,6 +30,9 @@ __all__ = [
     "ArtifactManager", "ToolRegistry", "ActionLogger",
     "BudgetManager", "QualityTracker", "QualityFunction",
     "Artifact", "Tool", "InternalAction", "ExternalAction",
+    "WorkspaceMemory",
+    "load_artifact", "unload_artifact", "write_artifact", 
+    "share_artifact", "list_artifacts",
     
     # Agent framework
     "EconomicAgent", "create_agent",
