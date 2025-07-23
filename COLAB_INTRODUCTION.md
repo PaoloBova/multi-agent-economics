@@ -100,6 +100,113 @@ The framework is designed to model various economic sectors:
 
 ---
 
+## Theory-Implementation Analysis & Needed Reforms
+
+**⚠️ CRITICAL GAPS IDENTIFIED**: The current implementation has several misalignments with the theoretical framework that need addressing:
+
+### 1. **Tool Cost Architecture Issues**
+
+**Current Problem**: Tools have fixed costs in JSON configs, wrapped at the agent level.
+
+**Theoretical Requirement**: Agents should choose resource allocation levels for tasks, with costs determined by their choices.
+
+**Needed Reform**:
+```python
+# Instead of: tool_config["sector_forecast"]["cost"] = 3
+# Should be: agent chooses effort level, simulation calculates cost
+
+def agent_chooses_forecast_effort():
+    # Agent decision: "I'll spend 5 credits on high-quality data and 3 on analysis"
+    return {"data_quality": 5, "analysis_depth": 3}
+
+def simulation_calculates_outcome(effort_allocation):
+    # Production function maps effort → output quality & cost
+    total_cost = sum(effort_allocation.values())
+    quality = production_function(effort_allocation)
+    return {"cost": total_cost, "quality": quality}
+```
+
+### 2. **Production Functions vs "Quality Functions"**
+
+**Current Problem**: Narrow focus on "quality" rather than general production relationships.
+
+**Theoretical Requirement**: Production functions map team resource allocations to outputs (goods, services, knowledge, coordination).
+
+**Needed Reform**:
+- Generalize beyond quality to any production relationship
+- Allow complex dependencies on multiple agent actions
+- Support team-level production functions, not just individual tools
+
+### 3. **Missing Simulation Backend Design**
+
+**Current Problem**: No clear economic simulation backend that processes organizational decisions.
+
+**Theoretical Requirement**: Market competition between organizations with state updates.
+
+**Needed Design**:
+```python
+class EconomicSimulation:
+    def process_round(self, organizational_decisions):
+        # 1. Collect all org decisions (prices, quantities, strategies)
+        # 2. Apply market clearing mechanisms
+        # 3. Update state (profits, reputation, market shares)
+        # 4. Generate feedback for next round
+        pass
+```
+
+### 4. **Agent Class Necessity Unclear**
+
+**Current Problem**: EconomicAgent extends AutoGen unnecessarily.
+
+**Question**: Do we need agent-level economic logic, or should economic constraints be handled by simulation backend?
+
+**Evaluation Needed**: Determine if agents need economic awareness vs. just tool access.
+
+### 5. **Action Logging Over-Engineering**
+
+**Current Problem**: Complex action logging system for internal/external actions.
+
+**Simpler Approach**: External actions directly update simulation state. Internal actions are just conversation history.
+
+**Needed Reform**:
+```python
+# Instead of complex Action classes:
+# External actions are just state updates
+simulation_state.add_price_quote(org="SellerBank1", product="note_A", price=100)
+
+# Internal actions are just AutoGen conversation flow
+# No special logging needed beyond AutoGen's built-in capabilities
+```
+
+### 6. **Market Dynamics Integration**
+
+**Current Missing**: Clear interface between agent decisions and economic outcomes.
+
+**Needed Design**:
+```python
+class MarketMechanism:
+    def clear_market(self, supply_side, demand_side):
+        # Match buyers and sellers
+        # Determine prices and quantities
+        # Calculate welfare outcomes
+        pass
+    
+    def update_reputation(self, quality_realizations):
+        # Update org reputation based on delivered quality
+        pass
+```
+
+### Recommended Development Approach
+
+1. **Phase 1**: Design simulation backend first (market clearing, state updates)
+2. **Phase 2**: Simplify agent framework (remove economic logic from agents)
+3. **Phase 3**: Implement proper production functions (effort → outcomes)
+4. **Phase 4**: Add market mechanisms (competition, reputation, learning)
+
+**Core Principle**: Agents make decisions, simulation backend handles economics.
+
+---
+
 ## Core Systems Deep Dive
 
 ### 1. Artifact Management System
