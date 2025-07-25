@@ -118,3 +118,66 @@ def budget_allocation(state, alloc_cfg):
 * Evaluate scaling strategies: hybrid LLM heuristics + lightweight rule‑based agents for large populations.
 
 This architecture balances modular clarity with the flexibility to plug in alternative market mechanisms, information models, and allocation policies—providing a robust foundation for your multi‑agent forecast exchange simulation.
+
+Adverse selection in financial markets shows up anytime one party to a transaction has better information than the other—and rational counterparties anticipate it, which can choke off high-quality trades. A few canonical examples:
+
+1. **Credit Markets**
+
+   * **Borrower Quality:** Banks charge a single interest rate to all loan applicants. High-credit–quality firms (low default risk) drop out because the rate is too high for them, leaving only riskier borrowers in the pool. That’s exactly Stiglitz & Weiss (1981): adverse selection leads to credit rationing rather than a rate that clears the market.
+   * **Simulation lesson:** If your buyers (e.g. portfolio managers) can’t distinguish which teams’ reports are most accurate ex ante, they’ll set a uniform “price” or evaluation cutoff that drives out the best teams over time.
+
+2. **Insurance**
+
+   * **Health or Property Insurance:** Insurers set premiums based on average risk. If healthier people opt out, the insurer’s remaining book is unprofitable, forcing premiums up further and triggering more healthy opt-outs—a classic death spiral.
+   * **Simulation lesson:** You can model buyers’ decision to “subscribe” to an ongoing research service or ratings feed; if low-value subscribers dominate, the service becomes unsustainable.
+
+3. **Securities Issuance (IPOs and Bond New Issues)**
+
+   * **Firm Signal vs. Price Discount:** Underwriters price IPOs below “true” value to ensure demand; high-quality issuers feel short-changed and may avoid going public, leaving lower-quality firms in the pool.
+   * **Simulation lesson:** If teams set a “discount” on their research subscription to attract buyers, the best teams may avoid the public marketplace and instead sell privately or not at all, again yielding a lemons equilibrium.
+
+4. **Delegated Asset Management & Ratings**
+
+   * **Fund Flows:** Investors can’t perfectly observe a fund manager’s skill, so they allocate capital based on past returns. If low-skill managers chase high-volatility strategies to appear good ex post, the overall pool degrades.
+   * **Simulation lesson:** Teams might over-promise on “alpha” to attract buyer interest, and buyers responding only to recent observed performance will reward noise rather than true skill.
+
+---
+
+### Roles for LLM-Powered Teams Beyond Pure Research
+
+While deep-dive analysis reports are an obvious fit, LLM teams can realistically augment many other finance functions—especially those that require natural language, synthesis of disparate data, or complex “what-if” reasoning:
+
+* **Regulatory & Compliance Monitoring**
+  Watch for changes in legislation, summarize rule updates, flag potential exposures (e.g. ESG breaches, anti-money laundering alerts). Buyers pay for compliance “health checks.”
+
+* **Due Diligence & KYC**
+  Scrape and synthesize public filings, news, and social media to build counterparty risk profiles or merger/acquisition target summaries.
+
+* **Portfolio Scenario Generation**
+  Generate macroeconomic stress-test scenarios (inflation shocks, rate-hike paths) in narrative form, then translate into parametric stress shocks for quantitative models.
+
+* **Risk Model Calibration**
+  Propose and interpret alternative risk-factor models (e.g., generate candidate factor definitions, articulate the trade-offs). Buyers “purchase” new factor insights.
+
+* **Automated Client Reporting & Investor Communication**
+  Draft quarterly commentaries, investor letters, or risk-disclosure documents tailored to different regulatory regimes or investor types.
+
+* **Contract & Term Sheet Drafting**
+  Assemble initial drafts of financing agreements, simplifying and normalizing terms, then hand off to human lawyers.
+
+* **Market Sentiment Analysis**
+  Continuously ingest news, social-media feeds, transcripts of earnings calls—produce a “sentiment score” dashboard that agents then refine or price.
+
+* **Strategy Brainstorming & Backtesting Proposals**
+  LLMs can outline new algorithmic strategies or hedging approaches, suggesting relevant datasets, and frame hypotheses for quant teams to code and test.
+
+---
+
+**Bringing It Back to Adverse Selection**
+Each of these services has its own dimension of quality that buyers can only imperfectly gauge in advance. Modeling adverse selection thus becomes richer:
+
+* **Subscription vs. One-Off Purchase:** Services like compliance monitoring are ongoing; buyers may subscribe only if expected value exceeds price, creating a self-selection dynamic over time.
+* **Multi-Dimension Signals:** Buyers might see proxies (e.g. turnaround time, past “accuracy” on certain service lines, sentiment of client testimonials) and form a composite E\[quality|signals] before subscribing.
+* **Tiered Products & Signaling:** Teams could offer “basic” vs. “premium” tiers—premium at a higher price but with stronger guarantees (e.g. private consultations)—creating a separating equilibrium if credible.
+
+By expanding your scenario to include a suite of LLM-driven services—each with its own hidden-quality parameter and buyer signal—you can simulate complex cross-subsidies, bundling strategies, and multi-market adverse selection, while still highlighting how collaborative LLM teams improve their hidden θ over time.
