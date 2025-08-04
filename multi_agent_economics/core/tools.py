@@ -53,16 +53,8 @@ class ToolRegistry:
             with open(market_data_path, 'r') as f:
                 return json.load(f)
         
-        # Default fallback data
-        return {
-            "sectors": {
-                "tech": {"mean": 0.08, "std": 0.15},
-                "finance": {"mean": 0.06, "std": 0.12},
-                "healthcare": {"mean": 0.07, "std": 0.10},
-                "energy": {"mean": 0.04, "std": 0.20}
-            },
-            "default_sector": {"mean": 0.05, "std": 0.15}
-        }
+        # Default fallback data - should load from config files
+        return {}
     
     def _load_tool_parameters(self, tool_params_path: Optional[Path]) -> Dict[str, Any]:
         """Load tool parameters from file or use defaults."""
@@ -70,24 +62,8 @@ class ToolRegistry:
             with open(tool_params_path, 'r') as f:
                 return json.load(f)
         
-        # Default fallback parameters
-        return {
-            "precision_tiers": {
-                "high": {"noise_factor": 0.1},
-                "med": {"noise_factor": 0.3},
-                "low": {"noise_factor": 0.6}
-            },
-            "error_factors": {
-                "high": 0.01,
-                "med": 0.05,
-                "low": 0.10
-            },
-            "noise_multipliers": {
-                "high": 0.1,
-                "med": 0.3,
-                "low": 0.6
-            }
-        }
+        # Default fallback parameters - should load from config files
+        return {}
     
     def load_from_file(self, config_path: Path):
         """Load tool definitions from JSON file."""
@@ -98,19 +74,12 @@ class ToolRegistry:
         if "monte_carlo_config" in data:
             self.monte_carlo_config = data["monte_carlo_config"]
         else:
-            self.monte_carlo_config = {
-                "n_simulations": 10000,
-                "default_volatility": 0.15,
-                "confidence_level": 0.95
-            }
+            self.monte_carlo_config = {}
         
         if "pricing_config" in data:
             self.pricing_config = data["pricing_config"]
         else:
-            self.pricing_config = {
-                "default_notional": 100,
-                "default_discount_rate": 0.03
-            }
+            self.pricing_config = {}
         
         for tool_data in data.get("tools", []):
             tool = Tool.from_dict(tool_data)
@@ -132,44 +101,117 @@ class ToolRegistry:
     def _register_builtin_tools(self):
         """Register built-in tools for the finance scenario."""
         
-        # Sector forecast tool
-        def sector_forecast(sector: str, horizon: int, tier: str = "med") -> Dict[str, Any]:
-            """Generate sector growth forecast with configurable precision."""
-            # Use loaded market data
+        # Sector forecast tool - Enhanced with regime prediction
+        def sector_forecast(sector: str, horizon: int, tier: str = "med", 
+                           current_regime: int = None, next_regime: int = None) -> Dict[str, Any]:
+            """
+            Generate sector forecast with regime transition predictions.
+            
+            This enhanced version provides regime predictions using confusion matrices,
+            making forecasts economically valuable for portfolio optimization.
+            """
+            # Import regime-switching functions
+            from ..models.market_for_finance import build_confusion_matrix, generate_forecast_signal
+            
+            # Load regime-switching configuration
+            from pathlib import Path
+            import json
+            
+            regime_config_path = Path(__file__).parent.parent.parent / "data" / "config" / "regime_switching.json"
+            if regime_config_path.exists():
+                with open(regime_config_path) as f:
+                    regime_config = json.load(f)
+            else:
+                regime_config = {}
+            
+            # Use loaded market data for regime parameters
             sectors_data = self.market_data.get("sectors", {})
-            default_data = self.market_data.get("default_sector", {"mean": 0.05, "std": 0.15})
+            default_data = self.market_data.get("default_sector", {})
             base_params = sectors_data.get(sector, default_data)
             
-            # Add noise based on precision tier using loaded parameters
-            noise_multipliers = self.tool_params.get("noise_multipliers", {"high": 0.1, "med": 0.3, "low": 0.6})
-            noise_factor = noise_multipliers.get(tier, 0.3)
+            if not base_params:
+                return {"error": "No market data available for sector and no configuration loaded"}
             
-            # Generate forecast
+            # Get regime parameters from config
+            regime_params_config = regime_config.get("regime_parameters", {})
+            quality_mapping = regime_params_config.get("confusion_matrix", {}).get("quality_mapping", {"high": 0.8, "med": 0.5, "low": 0.2})
+            forecast_quality = quality_mapping.get(tier, 0.5)
+            
+            # Number of regimes from config
+            K = regime_params_config.get("num_regimes", 2)
+            
+            # If no current regime specified, use default from config
+            if current_regime is None:
+                current_regime = regime_params_config.get("default_current_regime", 0)
+                
+            # If no next regime specified, simulate transition
+            if next_regime is None:
+                transition_prob = regime_params_config.get("default_transition_probability", 0.3)
+                next_regime = 1 - current_regime if np.random.random() < transition_prob else current_regime
+            
+            # Build confusion matrix and generate forecast signal
+            base_quality = regime_params_config.get("confusion_matrix", {}).get("base_quality", 0.6)
+            confusion_matrix = build_confusion_matrix(forecast_quality, K, base_quality=base_quality)
+            forecast_signal = generate_forecast_signal(next_regime, confusion_matrix)
+            
+            # Generate regime-dependent returns from config
+            regime_definitions = regime_params_config.get("regime_definitions", {})
+            regime_params = {}
+            for regime_id, regime_def in regime_definitions.items():
+                regime_id = int(regime_id)
+                return_mult = regime_def.get("return_multiplier", 1.0)
+                vol_mult = regime_def.get("volatility_multiplier", 1.0)
+                regime_params[regime_id] = {
+                    "mu": base_params["mean"] * return_mult,
+                    "sigma": base_params["std"] * vol_mult
+                }
+            
+            # Generate forecasted returns based on predicted regime
             forecast = []
+            predicted_regime = forecast_signal
+            regime_mu = regime_params[predicted_regime]["mu"] 
+            regime_sigma = regime_params[predicted_regime]["sigma"]
+            
             for _ in range(horizon):
-                base_rate = np.random.normal(base_params["mean"], base_params["std"])
-                noise = np.random.normal(0, base_params["std"] * noise_factor)
-                forecast.append(float(base_rate + noise))
+                forecasted_return = np.random.normal(regime_mu, regime_sigma)
+                forecast.append(float(forecasted_return))
+            
+            # Calculate forecast accuracy (for economic value measurement)
+            accuracy = confusion_matrix[next_regime, forecast_signal]
             
             return {
                 "sector": sector,
                 "horizon": horizon,
                 "forecast": forecast,
                 "tier": tier,
-                "confidence": 1.0 - noise_factor
+                "predicted_regime": int(predicted_regime),
+                "true_regime": int(next_regime),
+                "regime_accuracy": float(accuracy),
+                "forecast_quality": forecast_quality,
+                "confidence": float(accuracy),
+                "regime_signal": int(forecast_signal),
+                "attr_vector_component": float(forecast_quality * accuracy)  # For offer attributes
             }
         
         # Monte Carlo VaR tool
         def monte_carlo_var(portfolio: Dict[str, Any], confidence: float = 0.95) -> Dict[str, Any]:
             """Calculate Value at Risk using Monte Carlo simulation."""
-            # Use configuration from loaded data
-            config = getattr(self, 'monte_carlo_config', {
-                "n_simulations": 10000,
-                "default_volatility": 0.15,
-                "confidence_level": 0.95
-            })
+            # Load regime-switching configuration
+            from pathlib import Path
+            import json
             
-            n_simulations = config.get("n_simulations", 10000)
+            regime_config_path = Path(__file__).parent.parent.parent / "data" / "config" / "regime_switching.json"
+            if regime_config_path.exists():
+                with open(regime_config_path) as f:
+                    regime_config = json.load(f)
+                mc_config = regime_config.get("tool_quality_parameters", {}).get("monte_carlo_var", {})
+            else:
+                mc_config = {}
+            
+            # Use configuration from loaded data
+            config = getattr(self, 'monte_carlo_config', mc_config)
+            
+            n_simulations = config.get("simulation_sizes", {}).get("medium", 10000)
             portfolio_value = portfolio.get("value", 1000000)
             volatility = portfolio.get("volatility", config.get("default_volatility", 0.15))
             
@@ -194,12 +236,24 @@ class ToolRegistry:
                       discount_curve: Dict[str, Any], tier: str = "med") -> Dict[str, Any]:
             """Price a structured note given payoff function and market forecast."""
             # Simplified pricing model
-            base_price = payoff_fn.get("notional", 100)
+            base_price = payoff_fn.get("notional", pricing_config.get("default_notional", 100))
             growth_factor = np.mean(forecast.get("forecast", [0.05]))
-            discount_rate = discount_curve.get("rate", 0.03)
+            discount_rate = discount_curve.get("rate", pricing_config.get("default_discount_rate", 0.03))
+            
+            # Load regime-switching configuration for pricing
+            from pathlib import Path
+            import json
+            
+            regime_config_path = Path(__file__).parent.parent.parent / "data" / "config" / "regime_switching.json"
+            if regime_config_path.exists():
+                with open(regime_config_path) as f:
+                    regime_config = json.load(f)
+                pricing_config = regime_config.get("tool_quality_parameters", {}).get("price_note", {})
+            else:
+                pricing_config = {}
             
             # Add pricing error based on tier using loaded parameters
-            error_factors = self.tool_params.get("error_factors", {"high": 0.01, "med": 0.05, "low": 0.10})
+            error_factors = pricing_config.get("pricing_error_std", {"high": 0.01, "med": 0.05, "low": 0.10})
             error = np.random.normal(0, error_factors.get(tier, 0.05))
             
             fair_price = base_price * (1 + growth_factor) / (1 + discount_rate)
@@ -227,11 +281,23 @@ class ToolRegistry:
         # Reflect tool
         def reflect(scratchpad: str) -> Dict[str, Any]:
             """Generate a reflection/planning artifact."""
+            # Load regime-switching configuration for reflection
+            from pathlib import Path
+            import json
+            
+            regime_config_path = Path(__file__).parent.parent.parent / "data" / "config" / "regime_switching.json"
+            if regime_config_path.exists():
+                with open(regime_config_path) as f:
+                    regime_config = json.load(f)
+                reflect_config = regime_config.get("tool_quality_parameters", {}).get("reflect", {})
+            else:
+                reflect_config = {}
+            
             # This would integrate with LLM for actual reflection
             return {
                 "reflection": f"Analyzed situation: {scratchpad[:100]}...",
                 "next_actions": ["gather_data", "analyze_risk", "make_decision"],
-                "confidence": 0.8
+                "confidence": reflect_config.get("confidence_formula", {}).get("base", 0.8)
             }
         
         # Register all tools

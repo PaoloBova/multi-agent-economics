@@ -113,35 +113,8 @@ def load_tool_config(config_path: str = None) -> Dict[str, Any]:
     import json
     from pathlib import Path
     
-    default_config = {
-        "market_data": {
-            "sectors": {
-                "tech": {"mean": 0.08, "std": 0.15},
-                "finance": {"mean": 0.06, "std": 0.12},
-                "healthcare": {"mean": 0.07, "std": 0.10},
-                "energy": {"mean": 0.04, "std": 0.20}
-            },
-            "default_sector": {"mean": 0.05, "std": 0.15}
-        },
-        "tool_parameters": {
-            "sector_forecast_thresholds": {
-                "high": 5.0,
-                "medium": 2.0
-            },
-            "monte_carlo_thresholds": {
-                "high": 4.0,
-                "medium": 2.0
-            },
-            "price_note_thresholds": {
-                "high": 6.0,
-                "medium": 3.0
-            },
-            "reflect_thresholds": {
-                "high": 2.0,
-                "medium": 1.0
-            }
-        }
-    }
+    # Default config should be empty - all values should come from config files
+    default_config = {}
     
     if config_path and Path(config_path).exists():
         try:
