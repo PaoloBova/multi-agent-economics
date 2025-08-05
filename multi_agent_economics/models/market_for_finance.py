@@ -885,6 +885,11 @@ class MarketState(BaseModel):
     
     # Risk parameters
     risk_free_rate: float = Field(default=0.03, description="Risk-free rate for portfolio optimization", ge=0)
+    
+    # Agent context and tool management
+    current_agent_id: str = Field(default="unknown", description="Current agent context for tool calls")
+    budgets: dict[str, float] = Field(default_factory=dict, description="Agent budgets for tool usage")
+    tool_usage: dict[str, list[dict]] = Field(default_factory=dict, description="History of tool usage by agent")
 
 class MarketModel(BaseModel):
     """ Represents a market model in the simulation framework."""
