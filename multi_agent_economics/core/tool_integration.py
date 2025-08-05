@@ -35,7 +35,6 @@ def setup_economic_simulation(config_path: str = None) -> tuple:
         sector_forecast,
         monte_carlo_var, 
         price_note,
-        reflect
     ]
     
     # Create AutoGen-ready tools
