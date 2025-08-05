@@ -1,0 +1,89 @@
+{
+  "regime_parameters": {
+    "num_regimes": 2,
+    "default_current_regime": 0,
+    "regime_definitions": {
+      "0": {
+        "name": "bull_market",
+        "description": "Higher returns, lower volatility",
+        "return_multiplier": 1.5,
+        "volatility_multiplier": 0.8
+      },
+      "1": {
+        "name": "bear_market", 
+        "description": "Lower returns, higher volatility",
+        "return_multiplier": 0.5,
+        "volatility_multiplier": 1.3
+      }
+    },
+    "default_transition_probability": 0.3,
+    "confusion_matrix": {
+      "base_quality": 0.6,
+      "quality_mapping": {
+        "high": 0.8,
+        "med": 0.5,
+        "low": 0.2
+      }
+    }
+  },
+  "tool_quality_parameters": {
+    "sector_forecast": {
+      "quality_tiers": {
+        "high": {
+          "noise_factor": 0.1,
+          "confidence": 0.9
+        },
+        "medium": {
+          "noise_factor": 0.3,
+          "confidence": 0.7
+        },
+        "low": {
+          "noise_factor": 0.6,
+          "confidence": 0.5
+        }
+      }
+    },
+    "monte_carlo_var": {
+      "simulation_sizes": {
+        "high": 50000,
+        "medium": 10000,
+        "low": 1000
+      },
+      "default_confidence": 0.95,
+      "default_volatility": 0.15
+    },
+    "price_note": {
+      "pricing_error_std": {
+        "high": 0.01,
+        "medium": 0.05,
+        "low": 0.10
+      },
+      "default_discount_rate": 0.03,
+      "default_notional": 100
+    },
+    "reflect": {
+      "reflection_parameters": {
+        "high": {
+          "depth": "deep",
+          "num_insights": 5,
+          "num_actions": 4
+        },
+        "medium": {
+          "depth": "moderate", 
+          "num_insights": 3,
+          "num_actions": 2
+        },
+        "low": {
+          "depth": "shallow",
+          "num_insights": 1,
+          "num_actions": 1
+        }
+      },
+      "confidence_formula": {
+        "base": 0.3,
+        "multiplier": 0.2,
+        "max": 0.9
+      }
+    }
+  }
+}
