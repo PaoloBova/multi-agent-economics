@@ -11,6 +11,451 @@ from typing import Any, Callable
 
 import numpy as np
 
+
+# ============================================================================
+# Financial market dynamics
+# ============================================================================
+
+def transition_regimes(current_regimes: dict, transition_matrices: dict) -> dict:
+    """
+    Transition regimes for all sectors based on their transition matrices.
+    
+    Args:
+        current_regimes: Dict mapping sector -> current regime index
+        transition_matrices: Dict mapping sector -> transition matrix (K x K)
+        
+    Returns:
+        Dict mapping sector -> new regime index
+    """
+    new_regimes = {}
+    
+    for sector, current_regime in current_regimes.items():
+        if sector not in transition_matrices:
+            raise ValueError(f"No transition matrix for sector {sector}")
+            
+        transition_matrix = transition_matrices[sector]
+        
+        # Validate transition matrix
+        if not np.allclose(transition_matrix.sum(axis=1), 1.0):
+            raise ValueError(f"Transition matrix for {sector} has invalid probabilities")
+            
+        # Sample next regime based on current regime
+        transition_probs = transition_matrix[current_regime]
+        new_regime = categorical_draw(transition_probs)
+        new_regimes[sector] = new_regime
+        
+    return new_regimes
+
+def generate_regime_returns(regimes: dict, regime_params: dict) -> dict:
+    """
+    Generate returns for each sector based on their current regimes.
+    
+    Args:
+        regimes: Dict mapping sector -> current regime index
+        regime_params: Dict mapping sector -> {regime_idx -> {mu, sigma}}
+        
+    Returns:
+        Dict mapping sector -> realized return
+    """
+    returns = {}
+    
+    for sector, regime in regimes.items():
+        if sector not in regime_params:
+            raise ValueError(f"No regime parameters for sector {sector}")
+            
+        if regime not in regime_params[sector]:
+            raise ValueError(f"No parameters for regime {regime} in sector {sector}")
+            
+        params = regime_params[sector][regime]
+        mu = params["mu"]
+        sigma = params["sigma"]
+        
+        # Generate return from normal distribution
+        return_value = np.random.normal(mu, sigma)
+        returns[sector] = return_value
+        
+    return returns
+
+def generate_regime_history(regimes: dict, regime_params: dict, transition_matrices: dict, history_length: int) -> list[dict]:
+    """
+    Generate a history of regime returns for each sector.
+    
+    Args:
+        regimes: Dict mapping sector -> current regime index
+        regime_params: Dict mapping sector -> {regime_idx -> {mu, sigma}}
+        transition_matrices: Dict mapping sector -> transition matrix (K x K)
+        history_length: Number of periods to generate returns for
+        
+    Returns:
+        list of dicts containing returns, regimes, and index values by sector over the history
+    """
+    history = []
+    # Initialize index values
+    index_values = {sector: 100.0 for sector in regimes.keys()}
+    
+    for period in range(history_length):
+        # Generate returns for current regimes
+        returns = generate_regime_returns(regimes, regime_params)
+        
+        # Update index values with returns
+        for sector, return_val in returns.items():
+            index_values[sector] *= (1 + return_val)
+        
+        # Store period data
+        data = {
+            "period": period,
+            "returns": returns.copy(),
+            "regimes": regimes.copy(),
+            "index_values": index_values.copy()
+        }
+        history.append(data)
+        
+        # Transition to next period's regimes
+        regimes = transition_regimes(regimes, transition_matrices)
+    
+    return history
+
+def generate_regime_history_from_scenario(scenario_config, num_periods: int) -> list[dict]:
+    """
+    Generate complete regime history from scenario template.
+    
+    Args:
+        scenario_config: ScenarioConfig object containing regime setup
+        num_periods: Number of periods to simulate
+        
+    Returns:
+        List of dicts with period data: [{'period': 0, 'regimes': {...}, 'returns': {...}, 'index_values': {...}}, ...]
+    """
+    return generate_regime_history(
+        regimes=scenario_config.initial_regimes,
+        regime_params=scenario_config.regime_parameters,
+        transition_matrices=scenario_config.transition_matrices,
+        history_length=num_periods
+    )
+
+
+def build_regime_covariance(regimes: dict, regime_volatilities: dict, 
+                           fixed_correlations: np.ndarray) -> np.ndarray:
+    """
+    Build covariance matrix using regime-dependent volatilities and fixed correlations.
+    
+    Implementation of Strategy 1 from simulation_backend_plan.md:
+    Σ_ij = ρ_ij * σ_i^{s^(i)} * σ_j^{s^(j)}
+    
+    Args:
+        regimes: Dict mapping sector -> current regime index
+        regime_volatilities: Dict mapping sector -> {regime_idx -> volatility}
+        fixed_correlations: Correlation matrix (n_sectors x n_sectors)
+        
+    Returns:
+        Covariance matrix (n_sectors x n_sectors)
+    """
+    sectors = list(regimes.keys())
+    n_sectors = len(sectors)
+    
+    if fixed_correlations.shape != (n_sectors, n_sectors):
+        raise ValueError(f"Correlation matrix shape {fixed_correlations.shape} doesn't match {n_sectors} sectors")
+        
+    # Extract volatilities for current regimes
+    volatilities = np.zeros(n_sectors)
+    for i, sector in enumerate(sectors):
+        regime = regimes[sector]
+        if sector not in regime_volatilities or regime not in regime_volatilities[sector]:
+            raise ValueError(f"Missing volatility for sector {sector}, regime {regime}")
+        volatilities[i] = regime_volatilities[sector][regime]
+    
+    # Build covariance matrix: Σ_ij = ρ_ij * σ_i * σ_j
+    covariance_matrix = np.outer(volatilities, volatilities) * fixed_correlations
+    
+    return covariance_matrix
+
+def build_confusion_matrix(forecast_quality: float,
+                           K: int,
+                           base_quality: float = 0.6) -> np.ndarray:
+    """
+    Build confusion matrix for forecasting based on quality and number of regimes.
+    Args:
+        forecast_quality: Quality parameter [0, 1] (higher = more accurate)
+        K: Number of regimes
+        base_quality: Base forecasting accuracy (0.5 = random, 1.0 = perfect)
+    Returns:
+        Confusion matrix (K x K) where entry [i,j] = P(forecast=j | true=i)
+    """
+    # Calculate effective accuracy
+    q = base_quality + (1 - base_quality) * forecast_quality
+    q = np.clip(q, 1/K, 1.0)  # Ensure valid probability
+    
+    # Build confusion matrix: high probability on diagonal, low off-diagonal
+    off_diagonal_prob = (1 - q) / (K - 1) if K > 1 else 0
+    confusion_matrix = np.full((K, K), off_diagonal_prob)
+    np.fill_diagonal(confusion_matrix, q)
+    
+    return confusion_matrix
+
+def generate_forecast_signal(true_next_regime: int, confusion_matrix: np.ndarray) -> int:
+    """
+    Generate forecast signal based on true regime and confusion matrix.
+    
+    Args:
+        true_next_regime: True regime that will occur next
+        confusion_matrix: Confusion matrix P(forecast | true_regime)
+        
+    Returns:
+        Forecast data (regime prediction and confidence vector)
+    """
+    forecast_probs = confusion_matrix[true_next_regime]
+    return {"predicted_regime": categorical_draw(forecast_probs),
+            "confidence_vector": forecast_probs.tolist()}
+
+def update_belief_with_forecast(current_belief, forecast):
+    """
+    Update beliefs for a specific sector based on the forecast signal.
+    """
+    if isinstance(forecast, ForecastData):
+        likelihood = forecast.confidence_vector
+    else:
+        # Legacy dictionary format
+        likelihood = forecast["confidence_vector"]
+    posterior = current_belief * likelihood
+    posterior = posterior / np.sum(posterior) if np.sum(posterior) > 0 else current_belief
+    return posterior
+
+def update_agent_beliefs(prior_beliefs: dict,
+                         forecasts: dict,
+                         subjective_transitions: dict) -> dict:
+    """
+    Update agent beliefs using Bayesian filtering (HMM filter step).
+    
+    Two steps:
+    1. Prediction: p̂_{t+1} = p_t * Π (transition)
+    2. Update: p_{t+1} ∝ p̂_{t+1} * likelihood (Bayes rule)
+    
+    Args:
+        prior_beliefs: Dict mapping sector -> belief vector
+        forecasts: Dict mapping sector -> forecast data
+        subjective_transitions: Dict mapping sector -> subjective transition matrix
+        
+    Returns:
+        Dict mapping sector -> updated belief vector
+    """
+    updated_beliefs = {}
+    
+    for sector in prior_beliefs.keys():
+        
+        # Step 1: Prediction (prior transition)
+        predicted_belief = prior_beliefs[sector] @ subjective_transitions[sector]
+        
+        if sector not in forecasts:
+            # No forecast for this sector, just apply transition
+            updated_beliefs[sector] = predicted_belief
+            continue
+        
+        # Step 2: Update with forecast signal (Bayes rule)
+        forecast = forecasts[sector]
+        updated_beliefs[sector] = update_belief_with_forecast(predicted_belief, forecast)
+
+    return updated_beliefs
+
+
+def compute_portfolio_moments(agent_beliefs: dict, regime_returns: dict, 
+                             regime_volatilities: dict, correlations: np.ndarray) -> tuple:
+    """
+    Compute expected returns and covariance matrix from agent beliefs.
+    
+    Implementation of mixture distribution moments from simulation_backend_plan.md:
+    E[R] = Σ_s P(s) * μ^s
+    Var[R] = Σ_s P(s) * [Σ^s + (μ^s - E[R])(μ^s - E[R])']
+    
+    Args:
+        agent_beliefs: Dict mapping sector -> belief vector over regimes
+        regime_returns: Dict mapping sector -> {regime_idx -> expected_return}
+        regime_volatilities: Dict mapping sector -> {regime_idx -> volatility}
+        correlations: Fixed correlation matrix between sectors
+        
+    Returns:
+        Tuple of (expected_returns_vector, covariance_matrix)
+    """
+    sectors = list(agent_beliefs.keys())
+    n_sectors = len(sectors)
+    
+    # Compute expected returns for each sector
+    expected_returns = np.zeros(n_sectors)
+    for i, sector in enumerate(sectors):
+        beliefs = agent_beliefs[sector]
+        sector_returns = regime_returns[sector]
+        
+        # E[R_i] = Σ_k P(k) * μ_i^k
+        expected_return = sum(beliefs[k] * sector_returns[k] for k in range(len(beliefs)))
+        expected_returns[i] = expected_return
+    
+    # Compute proper mixture covariance matrix
+    import itertools
+    import logging
+    
+    # Get number of regimes per sector
+    n_regimes = [len(agent_beliefs[sector]) for sector in sectors]
+    total_combinations = np.prod(n_regimes)
+    
+    if total_combinations > 1000:
+        logging.warning(f"Computing covariance for {total_combinations} regime combinations")
+    
+    # Initialize covariance matrix
+    covariance_matrix = np.zeros((n_sectors, n_sectors))
+    
+    # Enumerate all regime combinations
+    regime_ranges = [range(n_regimes[i]) for i in range(n_sectors)]
+    
+    for regime_combo in itertools.product(*regime_ranges):
+        # Compute joint probability of this regime combination
+        joint_prob = 1.0
+        for i, regime in enumerate(regime_combo):
+            joint_prob *= agent_beliefs[sectors[i]][regime]
+        
+        # Compute regime-specific mean vector
+        regime_means = np.zeros(n_sectors)
+        regime_vols = np.zeros(n_sectors)
+        
+        for i, sector in enumerate(sectors):
+            regime = regime_combo[i]
+            regime_means[i] = regime_returns[sector][regime]
+            regime_vols[i] = regime_volatilities[sector][regime]
+        
+        # Regime-specific covariance matrix
+        regime_cov = np.outer(regime_vols, regime_vols) * correlations
+        
+        # Add to mixture: P(s) * [Σ^s + (μ^s - E[R])(μ^s - E[R])^T]
+        mean_diff = regime_means - expected_returns
+        covariance_matrix += joint_prob * (regime_cov + np.outer(mean_diff, mean_diff))
+    
+    return expected_returns, covariance_matrix
+
+
+def optimize_portfolio(expected_returns: np.ndarray, covariance_matrix: np.ndarray,
+                      risk_aversion: float, risk_free_rate: float) -> np.ndarray:
+    """
+    Compute optimal portfolio weights using mean-variance optimization.
+    
+    Implementation of the portfolio optimization from simulation_backend_plan.md:
+    w* = (1/γ) * Σ^{-1} * (μ - R_f * 1)
+    
+    Args:
+        expected_returns: Expected return vector for assets
+        covariance_matrix: Covariance matrix of returns
+        risk_aversion: Risk aversion parameter γ
+        risk_free_rate: Risk-free rate R_f
+        
+    Returns:
+        Optimal portfolio weights
+    """
+    n_assets = len(expected_returns)
+    excess_returns = expected_returns - risk_free_rate
+    
+    try:
+        # Solve: w = (1/γ) * Σ^{-1} * (μ - R_f)
+        weights = (1 / risk_aversion) * np.linalg.solve(covariance_matrix, excess_returns)
+    except np.linalg.LinAlgError:
+        # Fallback to equal weights if covariance matrix is singular
+        weights = np.ones(n_assets) / n_assets
+        
+    return weights
+
+
+def compute_knowledge_good_impact(buyer_state, knowledge_good, model_state):
+    """
+    Compute economic value of a knowledge good for a buyer.
+    
+    Knowledge goods provide sector-specific regime predictions with confidence levels.
+    This function calculates the profit impact by comparing portfolio allocations
+    with and without the knowledge good information.
+    
+    Args:
+        buyer_state: State of the buyer agent (should contain regime beliefs and risk preferences)
+        knowledge_good: Offer object representing the knowledge good
+        model_state: MarketState containing current regime info, parameters, forecasts, etc.
+        
+    Returns:
+        Dictionary with economic value, updated beliefs, expected returns, covariance matrices, and weights
+    """
+    # Look up the actual forecast for this knowledge good
+    good_id = knowledge_good.good_id
+    if good_id not in model_state.knowledge_good_forecasts:
+        return 0.0  # No forecast available
+    
+    forecast = model_state.knowledge_good_forecasts[good_id]
+    forecast_sector = forecast.sector
+    
+    # Get all sectors for portfolio construction
+    sectors = list(model_state.current_regimes.keys())
+    if not sectors or forecast_sector not in sectors:
+        return 0.0
+
+    current_beliefs = buyer_state.regime_beliefs
+
+    # Get buyer's risk parameters (with defaults)
+    risk_aversion = getattr(buyer_state, 'risk_aversion', 2.0)
+    risk_free_rate = getattr(model_state, 'risk_free_rate', 0.03)
+    
+    # Create regime returns and volatilities dicts from regime parameters
+    regime_returns = {}
+    regime_volatilities = {}
+    for sector, sector_params in model_state.regime_parameters.items():
+        regime_returns[sector] = {regime: params.mu for regime, params in sector_params.items()}
+        regime_volatilities[sector] = {regime: params.sigma for regime, params in sector_params.items()}
+    
+    # 1. Compute portfolio allocation with current beliefs
+    expected_returns_before, cov_matrix_before = compute_portfolio_moments(
+        current_beliefs, 
+        regime_returns, 
+        regime_volatilities, 
+        model_state.regime_correlations
+    )
+    weights_before = optimize_portfolio(
+        expected_returns_before, cov_matrix_before, risk_aversion, risk_free_rate
+    )
+    
+    # 2. Create updated beliefs incorporating knowledge good forecast
+    current_belief = buyer_state.regime_beliefs[forecast_sector]
+    posterior = update_belief_with_forecast(current_belief, forecast)
+    updated_beliefs = current_beliefs.copy()
+    updated_beliefs[forecast_sector] = posterior
+
+    # 3. Compute portfolio allocation with updated beliefs
+    expected_returns_after, cov_matrix_after = compute_portfolio_moments(
+        updated_beliefs, 
+        regime_returns, 
+        regime_volatilities, 
+        model_state.regime_correlations
+    )
+    weights_after = optimize_portfolio(
+        expected_returns_after, cov_matrix_after, risk_aversion, risk_free_rate
+    )
+    
+    # 4. Calculate actual returns based on current period data from regime history
+    current_period_data = model_state.regime_history[model_state.current_period]
+    sector_returns = np.array([current_period_data.returns[sector]
+                               for sector in current_period_data.returns])
+
+    # 5. Calculate profits for both allocations
+    profit_before = np.dot(weights_before, sector_returns)
+    profit_after = np.dot(weights_after, sector_returns)
+    
+    # 6. Return the economic value (profit difference)
+    economic_value = profit_after - profit_before
+
+    return {"economic_value": economic_value,
+            "beliefs_before": current_beliefs,
+            "beliefs_after": updated_beliefs,
+            "expected_returns_before": expected_returns_before,
+            "expected_returns_after": expected_returns_after,
+            "cov_matrix_before": cov_matrix_before,
+            "cov_matrix_after": cov_matrix_after,
+            "weights_before": weights_before,
+            "weights_after": weights_after}
+
+# ============================================================================
+# Choice models for knowledge goods
+# ============================================================================
+
 def renormalize(probs):
     """
     Renormalize a 1D array of non-negative probabilities so they sum to 1.
@@ -127,78 +572,173 @@ def clear_market(choices, _model, config):
     """
     choices: list of (buyer_id, Offer) pairs
     Since goods are non-rival, every choice is filled.
-    Transform into trades = [(buyer_id, org_id, price, qty=1, good_id), …]
+    Transform into TradeData objects.
     """
     trades = []
     if config.matching_rule == "non-rival":
         for buyer_id, offer in choices:
-            trades.append((buyer_id, offer.org_id, offer.price, offer.quantity, offer.good_id))
+            trade = TradeData(
+                buyer_id=buyer_id,
+                seller_id=offer.seller,  # Use seller field from Offer
+                price=offer.price,
+                quantity=1,  # Default quantity
+                good_id=offer.good_id
+            )
+            trades.append(trade)
     else:
         raise ValueError(f"Unknown matching rule: {config.matching_rule}")
     return trades
 
 def resolve_ex_post_valuations(trades, model, market_cfg):
     """
-    Resolve ex-post valuations for trades.
-    This is where we would apply any additional logic to determine the
-    actual value of trades based on market conditions or other factors.
+    Resolve ex-post valuations for knowledge goods purchased by buyers.
+    
+    For each buyer, applies multiple knowledge goods sequentially to compute
+    the individual economic impact of each knowledge good. Sequential application
+    ensures proper belief updating when multiple goods affect the same sector.
     """
+    # Create lookup structures
+    buyer_lookup = {buyer_state.buyer_id: buyer_state for buyer_state in model.state.buyers_state}
+    offer_lookup = {offer.good_id: offer for offer in model.state.offers}
+    
+    # Group knowledge good trades by buyer and sector
+    buyer_sector_trades = {}
     for trade in trades:
-        buyer_id, org_id, price, qty, good_id = trade
-        # Assuming we have a function to get the valuation based on the good_id
-        valuation = get_valuation(buyer_id, good_id)
-        model.state.product_impact[good_id][buyer_id] = valuation
+        # Skip if not a knowledge good
+        if trade.good_id not in model.state.knowledge_good_forecasts:
+            continue
+            
+        # Get sector for this knowledge good
+        forecast = model.state.knowledge_good_forecasts[trade.good_id]
+        sector = forecast.sector
+        
+        # Group by (buyer_id, sector)
+        key = (trade.buyer_id, sector)
+        if key not in buyer_sector_trades:
+            buyer_sector_trades[key] = []
+        buyer_sector_trades[key].append(trade)
+    
+    # Process each buyer-sector group sequentially
+    for (buyer_id, sector), sector_trades in buyer_sector_trades.items():
+        
+        # Get buyer state
+        if buyer_id not in buyer_lookup:
+            continue
+        buyer_state = buyer_lookup[buyer_id]
+        
+        # Track evolving beliefs for this buyer
+        current_beliefs = buyer_state.regime_beliefs.copy()
+        
+        # Apply each knowledge good sequentially
+        for trade in sector_trades:
+            # Get knowledge good offer
+            if trade.good_id not in offer_lookup:
+                continue
+            knowledge_good = offer_lookup[trade.good_id]
+            
+            # Create temporary buyer state with current beliefs
+            temp_buyer_state = buyer_state.__class__(**buyer_state.dict())
+            temp_buyer_state.regime_beliefs = current_beliefs
+            
+            # Compute individual impact of this knowledge good
+            impact_result = compute_knowledge_good_impact(temp_buyer_state, knowledge_good, model.state)
+            
+            # Store individual knowledge good impact
+            if trade.good_id not in model.state.knowledge_good_impacts:
+                model.state.knowledge_good_impacts[trade.good_id] = {}
+            model.state.knowledge_good_impacts[trade.good_id][buyer_id] = impact_result["economic_value"]
+            
+            # Update beliefs for next knowledge good application
+            current_beliefs = impact_result["beliefs_after"].copy()
+        
+        # Update the buyer's actual beliefs after processing all knowledge goods for this sector
+        buyer_state.regime_beliefs[sector] = current_beliefs[sector]
 
 def compute_surpluses(trades, model, market_cfg):
     """Apply transfers and record surplus."""
     for buyer_state in model.state.buyers_state:
         buyer_surplus = 0.0
         for trade in trades:
-            # Assuming trade is a tuple (buyer_id, org_id, price, qty, good_id)
-            if trade[0] == buyer_state.buyer_id:
-                good_id = trade[4]
-                buyer_id = trade[0]
-                # Add the previously calculated impact of the good on the buyer
-                buyer_surplus += model.state.product_impact[good_id][buyer_id]
-                buyer_surplus -= trade[2] * trade[3]  # price * qty
+            if trade.buyer_id == buyer_state.buyer_id:
+                # Add the economic value of knowledge goods
+                if (trade.good_id in model.state.knowledge_good_impacts and 
+                    trade.buyer_id in model.state.knowledge_good_impacts[trade.good_id]):
+                    buyer_surplus += model.state.knowledge_good_impacts[trade.good_id][trade.buyer_id]
+                
+                # Subtract cost of purchase
+                buyer_surplus -= trade.price * trade.quantity
         buyer_state.surplus = buyer_surplus
+        
     for seller_state in model.state.sellers_state:
         seller_surplus = 0.0
         for trade in trades:
-            # Assuming trade is a tuple (buyer_id, org_id, price, qty, good_id)
-            org_id = trade[1]
-            if org_id == seller_state.org_id:
-                seller_surplus += trade[2] * trade[3]  # price * qty
+            if trade.seller_id == seller_state.org_id:
+                seller_surplus += trade.price * trade.quantity
         seller_state.surplus = seller_surplus
         # Take care of any production costs from the seller
         # Assuming production_cost is defined in seller state
         seller_state.surplus -= seller_state.production_cost
         seller_state.total_profits += seller_state.surplus
 
-def update_buyer_preferences(buyer, trades, obs_noise_var=1.0):
+def update_buyer_preferences_from_knowledge_goods(buyer_state, model_state, obs_noise_var=1.0):
     """
-    buyer.attr_mu[j]: prior mean of weight on attr j
-    buyer.attr_sigma2[j]: prior variance of weight on attr j
-    trades: list of (offer, price, surplus) that buyer executed this round
+    Update buyer attribute preferences based on individual knowledge good economic impacts.
+    
+    This approach is more precise than using total surplus because we can directly
+    attribute the economic value to specific attribute combinations.
+    
+    Args:
+        buyer_state: Buyer with attr_mu[j] and attr_sigma2[j] preferences
+        model_state: MarketState containing knowledge_good_impacts and offers
+        obs_noise_var: Observation noise variance for Bayesian updates
     """
-    for offer, price, surplus in trades:
-        x = offer.attr_vector       # e.g. [q_theme1, q_methodA, …]
-        # we assume surplus ≈ x·β + noise, noise~N(0,obs_noise_var)
+    buyer_id = buyer_state.buyer_id
+    
+    # Create lookup for offers by good_id
+    offer_lookup = {offer.good_id: offer for offer in model_state.offers}
+    
+    # Process each knowledge good this buyer purchased
+    for good_id, buyer_impacts in model_state.knowledge_good_impacts.items():
+        if buyer_id not in buyer_impacts:
+            continue
+            
+        # Get the economic impact and attribute vector for this knowledge good
+        economic_impact = buyer_impacts[buyer_id]
+        
+        if good_id not in offer_lookup:
+            continue
+            
+        offer = offer_lookup[good_id]
+        x = offer.attr_vector  # Attribute vector [q_theme1, q_methodA, ...]
+        
+        # Bayesian update: economic_impact ≈ x·β + noise, noise~N(0,obs_noise_var)
+        # This assumes the economic impact can be linearly attributed to attributes
         for j, x_j in enumerate(x):
-            # prior precision τ0 and likelihood precision τL
-            τ0 = 1 / buyer.attr_sigma2[j]
-            τL = x_j**2 / obs_noise_var
-            # posterior precision & mean
+            if j >= len(buyer_state.attr_mu) or j >= len(buyer_state.attr_sigma2):
+                continue  # Skip if buyer doesn't have preferences for this attribute
+                
+            # Prior precision τ0 and likelihood precision τL
+            τ0 = 1 / buyer_state.attr_sigma2[j]
+            τL = x_j**2 / obs_noise_var if x_j != 0 else 0
+            
+            if τL == 0:  # Skip zero attributes
+                continue
+                
+            # Posterior precision & mean
             τ_post = τ0 + τL
-            μ_post = (τ0*buyer.attr_mu[j] + x_j*surplus/obs_noise_var) / τ_post
+            μ_post = (τ0 * buyer_state.attr_mu[j] + x_j * economic_impact / obs_noise_var) / τ_post
 
-            buyer.attr_sigma2[j] = 1 / τ_post
-            buyer.attr_mu[j]     = μ_post
+            buyer_state.attr_sigma2[j] = 1 / τ_post
+            buyer_state.attr_mu[j] = μ_post
 
 def transition_demand(model, market_cfg):
+    """Update buyer preferences based on knowledge good performance."""
     for buyer_state in model.state.buyers_state:
-        buyer_trades = [t for t in model.trades if t.buyer is buyer_state.buyer]
-        update_buyer_preferences(buyer_state, buyer_trades)
+        # Use the new knowledge good impact-based preference updating
+        update_buyer_preferences_from_knowledge_goods(buyer_state, model.state)
+        
+        # TODO: Add novel demand shocks from market_cfg if needed in the future
+        # For now, focusing on preference learning from knowledge good impacts
 
 def run_market_dynamics(model, market_cfg):
     """Market dynamics: match supply and demand, clear trades"""
@@ -223,14 +763,10 @@ def run_market_dynamics(model, market_cfg):
     for trade in trades:
         compute_surpluses(trade, model, market_cfg)
 
-    # 4. Demand-side shock for next round
-    model.state.demand_profile = transition_demand(
-        model.state.demand_profile,
-        market_cfg.demand_shock_dist
-    )
+    # 4. Demand-side shock for next round - update buyer preferences based on knowledge good performance
+    transition_demand(model, market_cfg)
 
     return trades
-
 
 def run_information_dynamics(model, info_cfg):
     """
@@ -242,30 +778,6 @@ def run_information_dynamics(model, info_cfg):
     3. Updates agent beliefs based on forecasts
     4. Records forecast accuracy for economic value measurement
     """
-    
-    # Initialize regime state if not present
-    if not model.state.current_regimes:
-        # Initialize with default regimes (all sectors start in regime 0)
-        sectors = info_cfg.get("sectors", ["tech", "finance", "healthcare"])
-        model.state.current_regimes = {sector: 0 for sector in sectors}
-        
-        # Set up default transition matrices (70% persistence, 30% switch)
-        model.state.regime_transition_matrices = {
-            sector: np.array([[0.7, 0.3], [0.3, 0.7]]) for sector in sectors
-        }
-        
-        # Set up regime parameters (bull vs bear markets)
-        model.state.regime_parameters = {}
-        for sector in sectors:
-            model.state.regime_parameters[sector] = {
-                0: {"mu": 0.08, "sigma": 0.15},  # Bull market
-                1: {"mu": 0.02, "sigma": 0.25}   # Bear market  
-            }
-        
-        # Set up correlation matrix
-        n_sectors = len(sectors)
-        model.state.regime_correlations = np.eye(n_sectors) * 0.6 + np.ones((n_sectors, n_sectors)) * 0.2
-        np.fill_diagonal(model.state.regime_correlations, 1.0)
     
     # a) Evolve underlying regime states
     model.state.current_regimes = transition_regimes(
@@ -284,383 +796,95 @@ def run_information_dynamics(model, info_cfg):
         if sector not in model.state.index_values:
             model.state.index_values[sector] = 100.0  # Initial value
         model.state.index_values[sector] *= (1 + return_val)
-    
-    # c) Process any pending forecasts and update agent beliefs
-    if hasattr(model.state, 'forecast_history') and model.state.forecast_history:
-        # Score recent forecasts for accuracy
-        for forecast_record in model.state.forecast_history[-10:]:  # Last 10 forecasts
-            if 'predicted_regime' in forecast_record and 'sector' in forecast_record:
-                sector = forecast_record['sector']
-                predicted = forecast_record['predicted_regime']
-                actual = model.state.current_regimes.get(sector, 0)
-                
-                # Record accuracy
-                forecast_record['actual_regime'] = actual
-                forecast_record['accuracy'] = 1.0 if predicted == actual else 0.0
-    
-    # d) Update agent beliefs (simplified: assume all agents observe regime transitions)
-    if hasattr(model.state, 'agent_beliefs'):
-        for agent_id in model.state.agent_beliefs.keys():
-            agent_beliefs = model.state.agent_beliefs[agent_id]
-            subjective_transitions = model.state.agent_subjective_transitions.get(
-                agent_id, model.state.regime_transition_matrices
-            )
-            
-            # Simple belief update: slightly shift beliefs toward observed regimes
-            for sector in model.state.current_regimes.keys():
-                if sector in agent_beliefs:
-                    current_regime = model.state.current_regimes[sector]
-                    # Bayesian-like update: increase belief in observed regime
-                    agent_beliefs[sector] = agent_beliefs[sector] * 0.9
-                    agent_beliefs[sector][current_regime] += 0.1
-                    # Renormalize
-                    agent_beliefs[sector] = agent_beliefs[sector] / np.sum(agent_beliefs[sector])
-    
+
     return regime_returns
 
-def allocate_budgets(model, alloc_cfg):
-    "Organizational rebalancing: principals allocate budgets across teams"
-    scores = aggregate_scores(model.state, alloc_cfg)
-    weights = alloc_cfg.pivot_function(scores)
-    redistribute_budget(model.state, weights)
+# def allocate_budgets(model, alloc_cfg):
+#     "Organizational rebalancing: principals allocate budgets across teams"
+#     scores = aggregate_scores(model.state, alloc_cfg)
+#     weights = alloc_cfg.pivot_function(scores)
+#     redistribute_budget(model.state, weights)
 
 def model_step(model, config):
     "Top‑level model step, invoked once per tick (round)"
     run_market_dynamics(model, config.market_params)
     run_information_dynamics(model, config.info_params)
-    allocate_budgets(model, config.budget_params)
+    # TODO: Handle stochastic arrival of news or shocks
+    # allocate_budgets(model, config.budget_params)
 
 def collect_stats(model):
     "Collect statistics from the model state"
     stats = {
         "total_trades": len(model.state.trades),
         "average_price": sum(trade.price for trade in model.state.trades) / len(model.state.trades) if model.state.trades else 0,
-        "total_demand": sum(model.state.demand_profile.values()),
-        "total_supply": sum(model.state.supply_profile.values())
     }
     return stats
 
-# ============================================================================
-# REGIME-SWITCHING MODEL FUNCTIONS
-# ============================================================================
+class RegimeParameters(BaseModel):
+    """Parameters for a single regime."""
+    mu: float = Field(..., description="Expected return for this regime")
+    sigma: float = Field(..., description="Volatility for this regime", gt=0)
 
-def transition_regimes(current_regimes: dict, transition_matrices: dict) -> dict:
-    """
-    Transition regimes for all sectors based on their transition matrices.
-    
-    Args:
-        current_regimes: Dict mapping sector -> current regime index
-        transition_matrices: Dict mapping sector -> transition matrix (K x K)
-        
-    Returns:
-        Dict mapping sector -> new regime index
-    """
-    new_regimes = {}
-    
-    for sector, current_regime in current_regimes.items():
-        if sector not in transition_matrices:
-            raise ValueError(f"No transition matrix for sector {sector}")
-            
-        transition_matrix = transition_matrices[sector]
-        
-        # Validate transition matrix
-        if not np.allclose(transition_matrix.sum(axis=1), 1.0):
-            raise ValueError(f"Transition matrix for {sector} has invalid probabilities")
-            
-        # Sample next regime based on current regime
-        transition_probs = transition_matrix[current_regime]
-        new_regime = categorical_draw(transition_probs)
-        new_regimes[sector] = new_regime
-        
-    return new_regimes
+class ForecastData(BaseModel):
+    """Structure for knowledge good forecast data."""
+    sector: str = Field(..., description="Sector being forecasted")
+    predicted_regime: int = Field(..., description="Predicted regime index", ge=0)
+    confidence_vector: list[float] = Field(..., description="Confidence probabilities for each regime")
 
+class PeriodData(BaseModel):
+    """Data for a single period in regime history."""
+    period: int = Field(..., description="Period number", ge=0)
+    returns: dict[str, float] = Field(..., description="Realized returns by sector")
+    regimes: dict[str, int] = Field(..., description="Active regimes by sector")
+    index_values: dict[str, float] = Field(..., description="Index values by sector")
 
-def generate_regime_returns(regimes: dict, regime_params: dict) -> dict:
-    """
-    Generate returns for each sector based on their current regimes.
+class TradeData(BaseModel):
+    """Structure for trade information."""
+    buyer_id: str = Field(..., description="ID of the buyer")
+    seller_id: str = Field(..., description="ID of the seller")
+    price: float = Field(..., description="Trade price", gt=0)
+    quantity: int = Field(..., description="Trade quantity", gt=0)
+    good_id: str = Field(..., description="ID of the traded good")
     
-    Args:
-        regimes: Dict mapping sector -> current regime index
-        regime_params: Dict mapping sector -> {regime_idx -> {mu, sigma}}
-        
-    Returns:
-        Dict mapping sector -> realized return
-    """
-    returns = {}
-    
-    for sector, regime in regimes.items():
-        if sector not in regime_params:
-            raise ValueError(f"No regime parameters for sector {sector}")
-            
-        if regime not in regime_params[sector]:
-            raise ValueError(f"No parameters for regime {regime} in sector {sector}")
-            
-        params = regime_params[sector][regime]
-        mu = params["mu"]
-        sigma = params["sigma"]
-        
-        # Generate return from normal distribution
-        return_value = np.random.normal(mu, sigma)
-        returns[sector] = return_value
-        
-    return returns
-
-
-def build_regime_covariance(regimes: dict, regime_volatilities: dict, 
-                           fixed_correlations: np.ndarray) -> np.ndarray:
-    """
-    Build covariance matrix using regime-dependent volatilities and fixed correlations.
-    
-    Implementation of Strategy 1 from simulation_backend_plan.md:
-    Σ_ij = ρ_ij * σ_i^{s^(i)} * σ_j^{s^(j)}
-    
-    Args:
-        regimes: Dict mapping sector -> current regime index
-        regime_volatilities: Dict mapping sector -> {regime_idx -> volatility}
-        fixed_correlations: Correlation matrix (n_sectors x n_sectors)
-        
-    Returns:
-        Covariance matrix (n_sectors x n_sectors)
-    """
-    sectors = list(regimes.keys())
-    n_sectors = len(sectors)
-    
-    if fixed_correlations.shape != (n_sectors, n_sectors):
-        raise ValueError(f"Correlation matrix shape {fixed_correlations.shape} doesn't match {n_sectors} sectors")
-        
-    # Extract volatilities for current regimes
-    volatilities = np.zeros(n_sectors)
-    for i, sector in enumerate(sectors):
-        regime = regimes[sector]
-        if sector not in regime_volatilities or regime not in regime_volatilities[sector]:
-            raise ValueError(f"Missing volatility for sector {sector}, regime {regime}")
-        volatilities[i] = regime_volatilities[sector][regime]
-    
-    # Build covariance matrix: Σ_ij = ρ_ij * σ_i * σ_j
-    covariance_matrix = np.outer(volatilities, volatilities) * fixed_correlations
-    
-    return covariance_matrix
-
-def build_confusion_matrix(forecast_quality: float,
-                           K: int,
-                           base_quality: float = 0.6) -> np.ndarray:
-    """
-    Build confusion matrix for forecasting based on quality and number of regimes.
-    Args:
-        forecast_quality: Quality parameter [0, 1] (higher = more accurate)
-        K: Number of regimes
-        base_quality: Base forecasting accuracy (0.5 = random, 1.0 = perfect)
-    Returns:
-        Confusion matrix (K x K) where entry [i,j] = P(forecast=j | true=i)
-    """
-    # Calculate effective accuracy
-    q = base_quality + (1 - base_quality) * forecast_quality
-    q = np.clip(q, 1/K, 1.0)  # Ensure valid probability
-    
-    # Build confusion matrix: high probability on diagonal, low off-diagonal
-    off_diagonal_prob = (1 - q) / (K - 1) if K > 1 else 0
-    confusion_matrix = np.full((K, K), off_diagonal_prob)
-    np.fill_diagonal(confusion_matrix, q)
-    
-    return confusion_matrix
-
-def generate_forecast_signal(true_next_regime: int, confusion_matrix: np.ndarray) -> int:
-    """
-    Generate forecast signal based on true regime and confusion matrix.
-    
-    Args:
-        true_next_regime: True regime that will occur next
-        confusion_matrix: Confusion matrix P(forecast | true_regime)
-        
-    Returns:
-        Forecast signal (regime prediction)
-    """
-    forecast_probs = confusion_matrix[true_next_regime]
-    return categorical_draw(forecast_probs)
-
-
-def update_agent_beliefs(prior_beliefs: dict, forecast_signals: dict,
-                        subjective_transitions: dict, confusion_matrices: dict) -> dict:
-    """
-    Update agent beliefs using Bayesian filtering (HMM filter step).
-    
-    Two steps:
-    1. Prediction: p̂_{t+1} = p_t * Π (transition)
-    2. Update: p_{t+1} ∝ p̂_{t+1} * likelihood (Bayes rule)
-    
-    Args:
-        prior_beliefs: Dict mapping sector -> belief vector
-        forecast_signals: Dict mapping sector -> forecast signal
-        subjective_transitions: Dict mapping sector -> subjective transition matrix
-        confusion_matrices: Dict mapping sector -> confusion matrix
-        
-    Returns:
-        Dict mapping sector -> updated belief vector
-    """
-    updated_beliefs = {}
-    
-    for sector in prior_beliefs.keys():
-        if sector not in forecast_signals:
-            # No forecast for this sector, just apply transition
-            updated_beliefs[sector] = prior_beliefs[sector] @ subjective_transitions[sector]
-            continue
-            
-        # Step 1: Prediction (prior transition)
-        predicted_belief = prior_beliefs[sector] @ subjective_transitions[sector]
-        
-        # Step 2: Update with forecast signal (Bayes rule)
-        forecast_signal = forecast_signals[sector]
-        confusion_matrix = confusion_matrices[sector]
-        
-        # Likelihood of observing this signal given each regime
-        likelihood = confusion_matrix[:, forecast_signal]
-        
-        # Posterior ∝ prior * likelihood
-        posterior = predicted_belief * likelihood
-        
-        # Normalize to probabilities
-        posterior = posterior / np.sum(posterior) if np.sum(posterior) > 0 else predicted_belief
-        
-        updated_beliefs[sector] = posterior
-        
-    return updated_beliefs
-
-
-def compute_portfolio_moments(agent_beliefs: dict, regime_returns: dict, 
-                             regime_volatilities: dict, correlations: np.ndarray) -> tuple:
-    """
-    Compute expected returns and covariance matrix from agent beliefs.
-    
-    Implementation of mixture distribution moments from simulation_backend_plan.md:
-    E[R] = Σ_s P(s) * μ^s
-    Var[R] = Σ_s P(s) * [Σ^s + (μ^s - E[R])(μ^s - E[R])']
-    
-    Args:
-        agent_beliefs: Dict mapping sector -> belief vector over regimes
-        regime_returns: Dict mapping sector -> {regime_idx -> expected_return}
-        regime_volatilities: Dict mapping sector -> {regime_idx -> volatility}
-        correlations: Fixed correlation matrix between sectors
-        
-    Returns:
-        Tuple of (expected_returns_vector, covariance_matrix)
-    """
-    sectors = list(agent_beliefs.keys())
-    n_sectors = len(sectors)
-    
-    # Compute expected returns for each sector
-    expected_returns = np.zeros(n_sectors)
-    for i, sector in enumerate(sectors):
-        beliefs = agent_beliefs[sector]
-        sector_returns = regime_returns[sector]
-        
-        # E[R_i] = Σ_k P(k) * μ_i^k
-        expected_return = sum(beliefs[k] * sector_returns[k] for k in range(len(beliefs)))
-        expected_returns[i] = expected_return
-    
-    # Compute proper mixture covariance matrix
-    import itertools
-    import logging
-    
-    # Get number of regimes per sector
-    n_regimes = [len(agent_beliefs[sector]) for sector in sectors]
-    total_combinations = np.prod(n_regimes)
-    
-    if total_combinations > 1000:
-        logging.warning(f"Computing covariance for {total_combinations} regime combinations")
-    
-    # Initialize covariance matrix
-    covariance_matrix = np.zeros((n_sectors, n_sectors))
-    
-    # Enumerate all regime combinations
-    regime_ranges = [range(n_regimes[i]) for i in range(n_sectors)]
-    
-    for regime_combo in itertools.product(*regime_ranges):
-        # Compute joint probability of this regime combination
-        joint_prob = 1.0
-        for i, regime in enumerate(regime_combo):
-            joint_prob *= agent_beliefs[sectors[i]][regime]
-        
-        # Compute regime-specific mean vector
-        regime_means = np.zeros(n_sectors)
-        regime_vols = np.zeros(n_sectors)
-        
-        for i, sector in enumerate(sectors):
-            regime = regime_combo[i]
-            regime_means[i] = regime_returns[sector][regime]
-            regime_vols[i] = regime_volatilities[sector][regime]
-        
-        # Regime-specific covariance matrix
-        regime_cov = np.outer(regime_vols, regime_vols) * correlations
-        
-        # Add to mixture: P(s) * [Σ^s + (μ^s - E[R])(μ^s - E[R])^T]
-        mean_diff = regime_means - expected_returns
-        covariance_matrix += joint_prob * (regime_cov + np.outer(mean_diff, mean_diff))
-    
-    return expected_returns, covariance_matrix
-
-
-def optimize_portfolio(expected_returns: np.ndarray, covariance_matrix: np.ndarray,
-                      risk_aversion: float, risk_free_rate: float) -> np.ndarray:
-    """
-    Compute optimal portfolio weights using mean-variance optimization.
-    
-    Implementation of the portfolio optimization from simulation_backend_plan.md:
-    w* = (1/γ) * Σ^{-1} * (μ - R_f * 1)
-    
-    Args:
-        expected_returns: Expected return vector for assets
-        covariance_matrix: Covariance matrix of returns
-        risk_aversion: Risk aversion parameter γ
-        risk_free_rate: Risk-free rate R_f
-        
-    Returns:
-        Optimal portfolio weights
-    """
-    n_assets = len(expected_returns)
-    excess_returns = expected_returns - risk_free_rate
-    
-    try:
-        # Solve: w = (1/γ) * Σ^{-1} * (μ - R_f)
-        weights = (1 / risk_aversion) * np.linalg.solve(covariance_matrix, excess_returns)
-    except np.linalg.LinAlgError:
-        # Fallback to equal weights if covariance matrix is singular
-        weights = np.ones(n_assets) / n_assets
-        
-    return weights
-
-
 class Offer(BaseModel):
     """ Represents an offer in the market."""
     good_id: str = Field(..., description="Unique identifier for the good")
-    price: float = Field(..., description="Price of the offer")
+    price: float = Field(..., description="Price of the offer", gt=0)
     seller: str = Field(..., description="ID of the seller agent")
     attr_vector: list[float] = Field(..., description="Attributes of the offer (e.g., quality, features)")
 
 class MarketState(BaseModel):
     """ Represents the state of a market in the simulation framework."""
-    prices: dict = Field(..., description="Current prices of assets in the market")
     offers: list[Offer] = Field(..., description="List of offers available in the market")
-    trades: list = Field(..., description="List of trades executed in the market")
+    trades: list[TradeData] = Field(..., description="List of trades executed in the market")
     demand_profile: dict = Field(..., description="Demand profile for the market")
     supply_profile: dict = Field(..., description="Supply profile for the market")
-    index_values: dict = Field(..., description="Values of market indices")
+    index_values: dict[str, float] = Field(..., description="Values of market indices")
     
     # Regime-switching state
-    current_regimes: dict = Field(default_factory=dict, description="Current regime for each sector")
+    current_regimes: dict[str, int] = Field(default_factory=dict, description="Current regime for each sector")
     regime_transition_matrices: dict = Field(default_factory=dict, description="Transition matrices for regime switching")
-    regime_parameters: dict = Field(default_factory=dict, description="Parameters (mu, sigma) for each regime")
+    regime_parameters: dict[str, dict[int, RegimeParameters]] = Field(default_factory=dict, description="Parameters (mu, sigma) for each regime")
     regime_correlations: Any = Field(default=None, description="Fixed correlation matrix between sectors")
     
     # Agent beliefs and forecasting
-    agent_beliefs: dict = Field(default_factory=dict, description="Agent beliefs about regimes")
+    agent_beliefs: dict[str, list[float]] = Field(default_factory=dict, description="Agent beliefs about regimes")
     agent_subjective_transitions: dict = Field(default_factory=dict, description="Agent subjective transition matrices")
     forecast_history: list = Field(default_factory=list, description="History of forecasts and their accuracy")
     
     # Additional tracking
     all_trades: list = Field(default_factory=list, description="Complete history of all trades")
-    product_impact: dict = Field(default_factory=dict, description="Impact of products on buyers")
     buyers_state: list = Field(default_factory=list, description="State of buyer agents")
     sellers_state: list = Field(default_factory=list, description="State of seller agents")
+    
+    # Regime history and simulation state
+    regime_history: list[PeriodData] = Field(default_factory=list, description="Pre-generated regime history")
+    current_period: int = Field(default=0, description="Current simulation time step", ge=0)
+    knowledge_good_impacts: dict[str, dict[str, float]] = Field(default_factory=dict, description="Impact of knowledge goods on buyer profits")
+    knowledge_good_forecasts: dict[str, ForecastData] = Field(default_factory=dict, description="Mapping good_id -> forecast data")
+    
+    # Risk parameters
+    risk_free_rate: float = Field(default=0.03, description="Risk-free rate for portfolio optimization", ge=0)
 
 class MarketModel(BaseModel):
     """ Represents a market model in the simulation framework."""
