@@ -100,6 +100,23 @@ class BudgetManager:
         self.credit(to_agent, amount, f"Transfer from {from_agent}: {description}")
         return True
     
+    def charge_credits(self, agent_id: str, amount: float, description: str = "Credit charge") -> bool:
+        """
+        Charge credits from an agent's budget.
+        
+        This is a convenience method that maps to debit() for compatibility
+        with tool interfaces that expect charge_credits().
+        
+        Args:
+            agent_id: Agent or category ID to charge
+            amount: Amount to charge
+            description: Description of the charge
+            
+        Returns:
+            bool: True if successful, False if insufficient funds
+        """
+        return self.debit(agent_id, amount, description)
+    
     def get_balance(self, agent_id: str) -> float:
         """Get current balance for an agent."""
         return self.balances.get(agent_id, 0.0)

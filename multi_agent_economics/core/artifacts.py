@@ -52,9 +52,10 @@ class Artifact:
 class Workspace:
     """Manages artifact storage and access for an agent or organization."""
     
-    def __init__(self, workspace_id: str, workspace_dir: Path):
+    def __init__(self, workspace_id: str, workspace_dir: Path, artifact_manager: Optional["ArtifactManager"] = None):
         self.workspace_id = workspace_id
         self.workspace_dir = Path(workspace_dir)
+        self.artifact_manager = artifact_manager  # Reference to parent manager
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
         
         # Create bucket directories
@@ -101,14 +102,53 @@ class Workspace:
         
         return artifact_ids
     
-    def share_artifact(self, artifact_id: str, target_workspace: "Workspace") -> bool:
-        """Share an artifact with another workspace."""
+    def share_artifact(self, artifact_id: str, target_workspace: "Workspace", 
+                      shared_by: str = "unknown", sharing_reason: str = "collaboration") -> bool:
+        """
+        Share an artifact with another workspace with enhanced tracking.
+        
+        Args:
+            artifact_id: ID of artifact to share
+            target_workspace: Target workspace to share with
+            shared_by: Agent/user who initiated the sharing
+            sharing_reason: Reason for sharing (e.g., "collaboration", "review", "handoff")
+        
+        Returns:
+            bool: True if sharing was successful
+        """
         artifact = self.get_artifact(artifact_id)
         if not artifact:
             return False
         
+        # Add sharing metadata to track the sharing transaction
+        sharing_metadata = {
+            "shared_from": self.workspace_id,
+            "shared_to": target_workspace.workspace_id,
+            "shared_by": shared_by,
+            "shared_at": datetime.now().isoformat(),
+            "sharing_reason": sharing_reason,
+            "original_created_by": artifact.created_by
+        }
+        
+        # Create a copy of the artifact with sharing metadata
+        existing_sharing_history = (artifact.metadata or {}).get("sharing_history", [])
+        new_sharing_history = existing_sharing_history + [sharing_metadata]
+        
+        shared_artifact = Artifact(
+            id=artifact.id,
+            type=artifact.type,
+            payload=artifact.payload.copy(),  # Deep copy of payload
+            visibility=artifact.visibility.copy(),
+            created_at=artifact.created_at,
+            created_by=artifact.created_by,
+            metadata={
+                **(artifact.metadata or {}),
+                "sharing_history": new_sharing_history
+            }
+        )
+        
         # Store in target's shared bucket
-        target_workspace.store_artifact(artifact, bucket="shared")
+        target_workspace.store_artifact(shared_artifact, bucket="shared")
         return True
 
 
@@ -123,7 +163,7 @@ class ArtifactManager:
     def create_workspace(self, workspace_id: str) -> Workspace:
         """Create a new workspace."""
         workspace_dir = self.base_dir / workspace_id
-        workspace = Workspace(workspace_id, workspace_dir)
+        workspace = Workspace(workspace_id, workspace_dir, self)  # Pass self as artifact_manager
         self.workspaces[workspace_id] = workspace
         return workspace
     

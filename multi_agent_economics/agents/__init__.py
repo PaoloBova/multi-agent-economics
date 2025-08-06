@@ -1,10 +1,8 @@
 """
 Agent implementations for the multi-agent economics simulation.
 
-This module contains various types of economic agents that can participate
-in simulations, including traders, consumers, producers, and market makers.
+This module will contain agent implementations when needed.
+For now, agents are created directly using AutoGen AssistantAgent with tools.
 """
 
-from .economic_agent import EconomicAgent, create_agent
-
-__all__ = ["EconomicAgent", "create_agent"]
+__all__ = []

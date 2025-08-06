@@ -141,6 +141,10 @@ class WorkspaceMemory:
     
     def load_artifact(self, artifact_id: str) -> bool:
         """Mark an artifact for loading in next prompt."""
+        # First check if the artifact actually exists in the workspace
+        if self.workspace.get_artifact(artifact_id) is None:
+            return False  # Artifact doesn't exist
+        
         artifact_meta = self.meta.setdefault(artifact_id, {
             "last_seen": -1,
             "loaded": False

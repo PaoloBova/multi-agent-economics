@@ -11,32 +11,28 @@ __email__ = "paolobova@proton.me"
 
 # Core infrastructure
 from .core import (
-    ArtifactManager, ToolRegistry, ActionLogger,
-    BudgetManager,
-    Artifact, Tool, InternalAction, ExternalAction,
-    WorkspaceMemory,
-    load_artifact, unload_artifact, write_artifact, 
-    share_artifact, list_artifacts
+    ArtifactManager, ActionLogger,
+    BudgetManager, 
+    Artifact, InternalAction, ExternalAction,
+    WorkspaceMemory
 )
 
-# Agent framework
-from .agents import EconomicAgent, create_agent
+# Agent framework (use AutoGen AssistantAgent directly with tools)
+# from .agents import EconomicAgent, create_agent
 
-# Scenarios
-from .scenarios import StructuredNoteLemonsScenario, run_flagship_scenario
+# Scenarios - TODO: Update for new tool system
+# from .scenarios import StructuredNoteLemonsScenario, run_flagship_scenario
 
 __all__ = [
     # Core infrastructure
-    "ArtifactManager", "ToolRegistry", "ActionLogger",
+    "ArtifactManager", "ActionLogger",
     "BudgetManager",
-    "Artifact", "Tool", "InternalAction", "ExternalAction",
+    "Artifact", "InternalAction", "ExternalAction",
     "WorkspaceMemory",
-    "load_artifact", "unload_artifact", "write_artifact", 
-    "share_artifact", "list_artifacts",
     
-    # Agent framework
-    "EconomicAgent", "create_agent",
+    # Agent framework (use AutoGen AssistantAgent directly with tools)
+    # "EconomicAgent", "create_agent",
     
-    # Scenarios
-    "StructuredNoteLemonsScenario", "run_flagship_scenario"
+    # Scenarios - TODO: Update for new tool system
+    # "StructuredNoteLemonsScenario", "run_flagship_scenario"
 ]
