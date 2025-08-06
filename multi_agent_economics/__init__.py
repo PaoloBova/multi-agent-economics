@@ -12,7 +12,7 @@ __email__ = "paolobova@proton.me"
 # Core infrastructure
 from .core import (
     ArtifactManager, ToolRegistry, ActionLogger,
-    BudgetManager, QualityTracker, QualityFunction,
+    BudgetManager,
     Artifact, Tool, InternalAction, ExternalAction,
     WorkspaceMemory,
     load_artifact, unload_artifact, write_artifact, 
@@ -28,7 +28,7 @@ from .scenarios import StructuredNoteLemonsScenario, run_flagship_scenario
 __all__ = [
     # Core infrastructure
     "ArtifactManager", "ToolRegistry", "ActionLogger",
-    "BudgetManager", "QualityTracker", "QualityFunction",
+    "BudgetManager",
     "Artifact", "Tool", "InternalAction", "ExternalAction",
     "WorkspaceMemory",
     "load_artifact", "unload_artifact", "write_artifact", 

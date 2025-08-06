@@ -20,7 +20,7 @@ import networkx as nx
 
 from ..core import (
     ArtifactManager, ToolRegistry, ActionLogger, 
-    BudgetManager, QualityTracker, QualityFunction
+    BudgetManager
 )
 from ..agents import create_agent
 
@@ -55,13 +55,6 @@ class StructuredNoteLemonsScenario:
         
         self.action_logger = ActionLogger(self.workspace_dir / "logs")
         self.budget_manager = BudgetManager()
-        
-        # Initialize quality function with configuration
-        quality_config_path = self.data_dir / "config" / "quality_thresholds.json"
-        self.quality_function = QualityFunction(
-            config_path=quality_config_path if quality_config_path.exists() else None
-        )
-        self.quality_tracker = QualityTracker(self.quality_function)
         
         # Market state
         self.market_state = self._initialize_market_state()

@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from multi_agent_economics.core import (
     ArtifactManager, ToolRegistry, ActionLogger, 
-    BudgetManager, QualityTracker, QualityFunction
+    BudgetManager
 )
 
 
@@ -44,11 +44,6 @@ def test_core_infrastructure():
     action_logger = ActionLogger(workspace_dir / "logs")
     budget_manager = BudgetManager()
     
-    quality_function = QualityFunction(
-        config_path=quality_config_path if quality_config_path.exists() else None
-    )
-    quality_tracker = QualityTracker(quality_function)
-    
     print("✓ All components initialized successfully")
     
     # Test budget management
@@ -78,9 +73,6 @@ def test_core_infrastructure():
     # Use higher tool usage to account for weighted calculation
     # sector_forecast: 12 * 0.5 = 6.0, price_note: 10 * 0.4 = 4.0, total = 10.0 > 6.0 threshold
     tool_usage = {"sector_forecast": 12.0, "price_note": 10.0}
-    quality_result = quality_function.calculate_quality_score("structured_note", tool_usage)
-    assert quality_result["quality"] == "high", f"Expected high quality, got {quality_result['quality']} with score {quality_result['score']}"
-    print("✓ Quality function working")
     
     print("\n🎉 All core infrastructure tests passed!")
     
