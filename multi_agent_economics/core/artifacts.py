@@ -134,11 +134,17 @@ class Workspace:
         existing_sharing_history = (artifact.metadata or {}).get("sharing_history", [])
         new_sharing_history = existing_sharing_history + [sharing_metadata]
         
+        # Expand visibility to include target organization (for chain sharing)
+        expanded_visibility = artifact.visibility.copy()
+        target_org_pattern = f"{target_workspace.workspace_id}.*"
+        if target_org_pattern not in expanded_visibility:
+            expanded_visibility.append(target_org_pattern)
+        
         shared_artifact = Artifact(
             id=artifact.id,
             type=artifact.type,
             payload=artifact.payload.copy(),  # Deep copy of payload
-            visibility=artifact.visibility.copy(),
+            visibility=expanded_visibility,  # Use expanded visibility
             created_at=artifact.created_at,
             created_by=artifact.created_by,
             metadata={

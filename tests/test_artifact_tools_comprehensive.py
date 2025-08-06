@@ -83,8 +83,38 @@ def target_workspace(artifact_manager):
 
 
 @pytest.fixture
+def third_workspace(artifact_manager):
+    """Create third workspace for chain sharing tests."""
+    return artifact_manager.create_workspace("ThirdOrg")
+
+
+@pytest.fixture
+def fourth_workspace(artifact_manager):
+    """Create fourth workspace for extended chain sharing tests."""
+    return artifact_manager.create_workspace("FourthOrg")
+
+
+@pytest.fixture
 def budget_manager():
     """Create BudgetManager for testing."""
+    return BudgetManager()
+
+
+@pytest.fixture
+def target_budget_manager():
+    """Create separate BudgetManager for target agent."""
+    return BudgetManager()
+
+
+@pytest.fixture
+def third_budget_manager():
+    """Create separate BudgetManager for third agent."""
+    return BudgetManager()
+
+
+@pytest.fixture
+def fourth_budget_manager():
+    """Create separate BudgetManager for fourth agent."""
     return BudgetManager()
 
 
@@ -95,9 +125,45 @@ def test_agent(test_workspace, budget_manager):
 
 
 @pytest.fixture
+def target_agent(target_workspace, target_budget_manager):
+    """Create target agent for sharing tests."""
+    return MockAgent("TargetAnalyst", target_workspace, target_budget_manager)
+
+
+@pytest.fixture
+def third_agent(third_workspace, third_budget_manager):
+    """Create third agent for chain sharing tests."""
+    return MockAgent("ThirdResearcher", third_workspace, third_budget_manager)
+
+
+@pytest.fixture
+def fourth_agent(fourth_workspace, fourth_budget_manager):
+    """Create fourth agent for extended chain sharing tests."""
+    return MockAgent("FourthAnalyst", fourth_workspace, fourth_budget_manager)
+
+
+@pytest.fixture
 def artifact_tools(test_agent):
     """Create artifact tools bound to test agent."""
     return create_artifact_tools_for_agent(test_agent)
+
+
+@pytest.fixture
+def target_artifact_tools(target_agent):
+    """Create artifact tools bound to target agent."""
+    return create_artifact_tools_for_agent(target_agent)
+
+
+@pytest.fixture
+def third_artifact_tools(third_agent):
+    """Create artifact tools bound to third agent."""
+    return create_artifact_tools_for_agent(third_agent)
+
+
+@pytest.fixture
+def fourth_artifact_tools(fourth_agent):
+    """Create artifact tools bound to fourth agent."""
+    return create_artifact_tools_for_agent(fourth_agent)
 
 
 def create_test_artifacts(workspace: Workspace) -> list:
@@ -560,6 +626,134 @@ async def test_share_nonexistent_artifact(test_agent, artifact_tools):
     # Assert: Budget should still be charged (operation was attempted)
     final_budget = test_agent.budget_manager.get_balance("TestAnalyst_artifacts")
     assert final_budget == initial_budget - 0.3
+
+
+
+
+@pytest.mark.asyncio
+async def test_chain_sharing_comprehensive(test_agent, target_agent, third_agent, fourth_agent,
+                                          artifact_tools, target_artifact_tools, third_artifact_tools, fourth_artifact_tools,
+                                          test_workspace, target_workspace, third_workspace, fourth_workspace,
+                                          artifact_manager):
+    """
+    Test comprehensive chain sharing functionality.
+    
+    Expected Behavior:
+    - First share: TestOrg -> TargetOrg (should work with original visibility)
+    - Second share: TargetOrg -> ThirdOrg (should work with "ownership" rule)
+    - Each step should preserve sharing history
+    - Visibility should expand to include new targets
+    - Budget should be charged for each sharing operation
+    """
+    # Arrange: Create artifact
+    artifact_ids = create_test_artifacts(test_workspace)
+    shareable_artifact_id = artifact_ids[1]  # Risk assessment with visibility ["TestOrg.*", "TargetOrg.*"]
+    
+    share_tool = artifact_tools[3]
+    
+    # Step 1: TestOrg -> TargetOrg
+    initial_budget = test_agent.budget_manager.get_balance("TestAnalyst_artifacts")
+    
+    result1 = await share_tool.run_json({
+        "artifact_id": shareable_artifact_id,
+        "target_agent": "TargetOrg.analyst"
+    }, None)
+    
+    assert result1.status == "shared"
+    assert result1.target == "TargetOrg"
+    
+    # Verify budget charged
+    budget_after_step1 = test_agent.budget_manager.get_balance("TestAnalyst_artifacts")
+    assert budget_after_step1 == initial_budget - 0.3
+    
+    # Check artifact in TargetOrg
+    target_artifact = target_workspace.get_artifact(shareable_artifact_id)
+    assert target_artifact is not None
+    assert target_artifact.id == shareable_artifact_id
+    
+    # Check sharing history (1 entry)
+    sharing_history = target_artifact.metadata["sharing_history"]
+    assert len(sharing_history) == 1
+    assert sharing_history[0]["shared_from"] == "TestOrg"
+    assert sharing_history[0]["shared_to"] == "TargetOrg"
+    assert sharing_history[0]["shared_by"] == "TestAnalyst"
+    
+    # Check expanded visibility
+    assert "TargetOrg.*" in target_artifact.visibility
+    
+    # Step 2: TargetOrg -> ThirdOrg (chain sharing)
+    target_share_tool = target_artifact_tools[3]
+    
+    target_initial_budget = target_agent.budget_manager.get_balance("TargetAnalyst_artifacts")
+    
+    result2 = await target_share_tool.run_json({
+        "artifact_id": shareable_artifact_id,
+        "target_agent": "ThirdOrg.researcher"
+    }, None)
+    
+    assert result2.status == "shared"
+    assert result2.target == "ThirdOrg"
+    
+    # Verify budget charged for TargetOrg
+    target_budget_after = target_agent.budget_manager.get_balance("TargetAnalyst_artifacts")
+    assert target_budget_after == target_initial_budget - 0.3
+    
+    # Check artifact in ThirdOrg
+    third_artifact = third_workspace.get_artifact(shareable_artifact_id)
+    assert third_artifact is not None
+    assert third_artifact.id == shareable_artifact_id
+    
+    # Check sharing history (2 entries now)
+    third_sharing_history = third_artifact.metadata["sharing_history"]
+    assert len(third_sharing_history) == 2
+    
+    # First entry: TestOrg -> TargetOrg
+    assert third_sharing_history[0]["shared_from"] == "TestOrg"
+    assert third_sharing_history[0]["shared_to"] == "TargetOrg"
+    assert third_sharing_history[0]["shared_by"] == "TestAnalyst"
+    
+    # Second entry: TargetOrg -> ThirdOrg
+    assert third_sharing_history[1]["shared_from"] == "TargetOrg"
+    assert third_sharing_history[1]["shared_to"] == "ThirdOrg"
+    assert third_sharing_history[1]["shared_by"] == "TargetAnalyst"
+    
+    # Check that original creator is preserved
+    assert third_sharing_history[0]["original_created_by"] == "TestAnalyst"
+    assert third_sharing_history[1]["original_created_by"] == "TestAnalyst"
+    
+    # Check expanded visibility includes all targets
+    assert "TestOrg.*" in third_artifact.visibility
+    assert "TargetOrg.*" in third_artifact.visibility
+    assert "ThirdOrg.*" in third_artifact.visibility
+    
+    # Step 3: ThirdOrg -> FourthOrg (extended chain)
+    third_share_tool = third_artifact_tools[3]
+    
+    result3 = await third_share_tool.run_json({
+        "artifact_id": shareable_artifact_id,
+        "target_agent": "FourthOrg.analyst"
+    }, None)
+    
+    assert result3.status == "shared"
+    assert result3.target == "FourthOrg"
+    
+    # Check final artifact in FourthOrg
+    fourth_artifact = fourth_workspace.get_artifact(shareable_artifact_id)
+    assert fourth_artifact is not None
+    
+    # Check sharing history (3 entries now)
+    fourth_sharing_history = fourth_artifact.metadata["sharing_history"]
+    assert len(fourth_sharing_history) == 3
+    
+    # All entries should preserve original creator
+    for entry in fourth_sharing_history:
+        assert entry["original_created_by"] == "TestAnalyst"
+    
+    # Final visibility should include all organizations
+    assert "TestOrg.*" in fourth_artifact.visibility
+    assert "TargetOrg.*" in fourth_artifact.visibility
+    assert "ThirdOrg.*" in fourth_artifact.visibility
+    assert "FourthOrg.*" in fourth_artifact.visibility
 
 
 # Artifact Listing Tests

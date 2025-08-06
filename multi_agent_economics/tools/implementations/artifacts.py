@@ -230,12 +230,23 @@ def share_artifact_impl(
         source_workspace_id = workspace.workspace_id
         
         # Check if the target organization is allowed in the artifact's visibility
+        # OR if the current workspace "owns" the artifact (has it in their workspace)
         allowed_targets = source_artifact.visibility
         target_allowed = False
+        
+        # Check explicit visibility rules
         for visibility_rule in allowed_targets:
             if visibility_rule == f"{target_organization}.*" or visibility_rule == target_agent:
                 target_allowed = True
                 break
+        
+        # Also allow sharing if the workspace has the artifact (they can re-share)
+        # This enables chain sharing - if you have an artifact, you can share it onward
+        if not target_allowed:
+            # If workspace has the artifact, they can share it (chain sharing)
+            workspace_has_artifact = workspace.get_artifact(artifact_id) is not None
+            if workspace_has_artifact:
+                target_allowed = True
         
         if not target_allowed:
             return ArtifactShareResponse(
