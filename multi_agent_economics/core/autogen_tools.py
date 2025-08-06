@@ -311,77 +311,6 @@ def create_economic_tools(market_model, config_data: Dict[str, Any]) -> List[Fun
             "warnings": [] if actual_effort == effort else [f"Budget limited effort to {actual_effort}"]
         }
     
-    # Tool 4: Reflect
-    async def reflect(
-        context: Annotated[str, "Current situation or decision context to analyze"],
-        goals: Annotated[List[str], "List of goals or objectives to consider"],
-        effort: Annotated[float, "Credits to allocate - higher effort = deeper analysis"] = 1.0
-    ) -> Dict[str, Any]:
-        """
-        Generate strategic reflection and planning recommendations.
-        
-        Analyzes the current context against stated goals and provides
-        actionable insights and recommendations.
-        """
-        # Access simulation state through closure
-        market_state = market_model.state
-        agent_id = getattr(market_state, 'current_agent_id', 'unknown')
-        
-        # Manage budget
-        actual_effort = manage_budget(agent_id, effort)
-        
-        # Get tool configuration
-        tool_config = get_tool_config("reflect")
-        confidence_formula = tool_config.get("confidence_formula", {"base": 0.8, "effort_multiplier": 0.05})
-        
-        # Calculate reflection quality based on effort
-        base_confidence = confidence_formula.get("base", 0.8)
-        effort_multiplier = confidence_formula.get("effort_multiplier", 0.05)
-        confidence = min(0.95, base_confidence + (actual_effort * effort_multiplier))
-        
-        # Generate reflection based on context and goals
-        analysis_depth = "detailed" if actual_effort >= 3.0 else "standard" if actual_effort >= 1.0 else "basic"
-        
-        # Simple reflection logic (would integrate with LLM in production)
-        reflection_text = f"Analyzed situation: {context[:200]}..."
-        
-        # Generate action recommendations based on goals
-        next_actions = []
-        for goal in goals[:3]:  # Limit to top 3 goals
-            if "data" in goal.lower() or "information" in goal.lower():
-                next_actions.append("gather_additional_data")
-            elif "risk" in goal.lower():
-                next_actions.append("conduct_risk_analysis")
-            elif "decision" in goal.lower() or "choice" in goal.lower():
-                next_actions.append("evaluate_decision_options")
-            else:
-                next_actions.append("define_success_metrics")
-        
-        # Add default actions if none generated
-        if not next_actions:
-            next_actions = ["gather_data", "analyze_risk", "make_decision"]
-        
-        # Record tool usage
-        if hasattr(market_state, 'tool_usage'):
-            if agent_id not in market_state.tool_usage:
-                market_state.tool_usage[agent_id] = []
-            market_state.tool_usage[agent_id].append({
-                "tool": "reflect",
-                "effort": actual_effort,
-                "timestamp": "now"
-            })
-        
-        return {
-            "context_summary": context[:200] + "..." if len(context) > 200 else context,
-            "goals_analyzed": goals,
-            "reflection": reflection_text,
-            "next_actions": next_actions,
-            "analysis_depth": analysis_depth,
-            "confidence": confidence,
-            "effort_requested": effort,
-            "effort_used": actual_effort,
-            "warnings": [] if actual_effort == effort else [f"Budget limited effort to {actual_effort}"]
-        }
     
     # Create and return FunctionTool instances
     tools = [
@@ -396,10 +325,6 @@ def create_economic_tools(market_model, config_data: Dict[str, Any]) -> List[Fun
         FunctionTool(
             price_note,
             description="Price structured financial instruments using Monte Carlo methods with configurable precision"
-        ),
-        FunctionTool(
-            reflect,
-            description="Generate strategic reflection and planning recommendations based on context and goals"
         )
     ]
     
