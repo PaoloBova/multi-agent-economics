@@ -18,8 +18,8 @@ classifiers = [
 [tool.poetry.dependencies]
 python = "^3.12"
 # Core AutoGen dependencies
-autogen-agentchat = "^0.6.0"
-autogen-ext = {extras = ["openai"], version = "^0.6.0"}
+autogen-agentchat = "^0.6.4"
+autogen-ext = {version = "^0.6.4", extras = ["openai"]}
 # Essential for the project
 dvc = "^3.0.0"
 pydantic = "^2.0.0"
@@ -30,6 +30,7 @@ numpy = "^1.24.0"
 matplotlib = "^3.7.0"
 # LLM provider
 openai = "^1.0.0"
+autogen-core = "^0.6.4"
 
 [tool.poetry.group.dev.dependencies]
 # Testing
