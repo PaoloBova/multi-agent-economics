@@ -32,14 +32,25 @@ load_dotenv()
 # Setup logging for debugging
 log_file = Path("./demo_artifact_tools.log")
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,  # Changed from DEBUG to INFO
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler(log_file, mode='w'),  # Overwrite log file each run
         # logging.StreamHandler()  # Also log to console
     ]
 )
+
+# Reduce log volume from noisy components (filter out DEBUG/INFO, keep WARNING+)
+logging.getLogger('autogen_core.events').setLevel(logging.WARNING)  # Reduces 335+ message passing logs
+logging.getLogger('httpcore').setLevel(logging.WARNING)             # Reduces HTTP connection details
+logging.getLogger('openai._base_client').setLevel(logging.WARNING)  # Reduces OpenAI request/response details
+logging.getLogger('httpx').setLevel(logging.WARNING)                # Reduces HTTP request logs
+logging.getLogger('asyncio').setLevel(logging.WARNING)              # Reduces async task logs
+
+# Keep useful logs at INFO level (artifact operations, demo progress, errors)
 logger = logging.getLogger('demo_artifact_tools')
+logging.getLogger('artifacts.tools').setLevel(logging.INFO)         # Artifact tool operations
+logging.getLogger('autogen_core').setLevel(logging.INFO)            # Core AutoGen operations (non-events)
 
 # Add project root to path
 project_root = Path(__file__).parent
