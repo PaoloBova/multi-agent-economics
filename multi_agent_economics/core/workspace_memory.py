@@ -207,10 +207,10 @@ class WorkspaceMemory:
     async def query(self, query: Union[str, MemoryContent], 
                    cancellation_token: Optional[CancellationToken] = None, 
                    **kwargs: Any) -> MemoryQueryResult:
-        """Retrieve all information from the memory store."""    
+        """Retrieve all information from the memory store."""
         # Note: This is a no-op for our workspace memory
         # since we manage memory through artifact loading/unloading
-        pass
+        return MemoryQueryResult(results=[])
     
     async def update_context(self, model_context: ChatCompletionContext) -> UpdateContextResult:
         """Update the provided model context using relevant memory content."""
