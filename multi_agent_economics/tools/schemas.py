@@ -8,6 +8,7 @@ both economic analysis and artifact management tools.
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Literal
 from datetime import datetime
+from ..models.market_for_finance import ForecastData
 
 
 # Economic Tool Response Schemas
@@ -15,8 +16,7 @@ from datetime import datetime
 class SectorForecastResponse(BaseModel):
     """Response model for sector forecast tool."""
     sector: str = Field(..., description="Sector that was forecasted")
-    horizon: int = Field(..., description="Number of periods forecasted", ge=1)
-    forecast: List[float] = Field(..., description="Forecasted returns for each period")
+    forecast: ForecastData = Field(..., description="Forecast data with regime prediction and confidence")
     quality_tier: Literal["low", "medium", "high"] = Field(..., description="Quality tier based on effort")
     effort_used: float = Field(..., description="Actual effort used after budget constraints", ge=0)
 
