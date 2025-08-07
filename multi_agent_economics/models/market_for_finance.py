@@ -853,6 +853,25 @@ class Offer(BaseModel):
     seller: str = Field(..., description="ID of the seller agent")
     attr_vector: list[float] = Field(..., description="Attributes of the offer (e.g., quality, features)")
 
+class BuyerState(BaseModel):
+    """State of a buyer agent in the market."""
+    buyer_id: str = Field(..., description="Unique identifier for the buyer")
+    regime_beliefs: dict[str, list[float]] = Field(..., description="Beliefs about regime probabilities by sector")
+    risk_aversion: float = Field(default=2.0, description="Risk aversion parameter", gt=0)
+    attr_mu: list[float] = Field(default_factory=list, description="Mean preferences for each attribute")
+    attr_sigma2: list[float] = Field(default_factory=list, description="Variance of preferences for each attribute")
+    attr_weights: list[float] = Field(default_factory=list, description="Current attribute weights for utility calculation")
+    budget: float = Field(default=100.0, description="Available budget for purchases", ge=0)
+    surplus: float = Field(default=0.0, description="Current period surplus")
+    value_of: list[float] = Field(default_factory=list, description="Calculated values of current offers")
+
+class SellerState(BaseModel):
+    """State of a seller agent in the market."""
+    org_id: str = Field(..., description="Organization/seller identifier")
+    production_cost: float = Field(default=0.0, description="Cost of producing current offerings", ge=0)
+    surplus: float = Field(default=0.0, description="Current period surplus")
+    total_profits: float = Field(default=0.0, description="Cumulative profits over all periods")
+
 class MarketState(BaseModel):
     """ Represents the state of a market in the simulation framework."""
     offers: list[Offer] = Field(..., description="List of offers available in the market")

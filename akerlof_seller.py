@@ -109,6 +109,34 @@ class AkerlofSeller:
         
         return matching_revenues
         
+    def _convert_effort_to_numeric(self, effort_level: str) -> float:
+        """
+        Convert effort level string to numeric value based on context tool parameters.
+        
+        Args:
+            effort_level: String effort level ('high', 'medium', 'low')
+            
+        Returns:
+            Numeric effort value matching tool parameter thresholds
+        """
+        # Get effort thresholds from tool parameters
+        tool_params = self.context.get('tool_parameters', {})
+        sector_forecast_params = tool_params.get('sector_forecast', {})
+        effort_thresholds = sector_forecast_params.get('effort_thresholds', {
+            'high': 5.0, 
+            'medium': 2.0
+        })
+        
+        # Map effort level to numeric value
+        if effort_level == 'high':
+            return effort_thresholds.get('high', 5.0)
+        elif effort_level == 'medium':
+            return effort_thresholds.get('medium', 2.0)
+        else:  # 'low'
+            # Low effort should be below medium threshold
+            medium_threshold = effort_thresholds.get('medium', 2.0)
+            return medium_threshold * 0.5  # Half of medium threshold
+    
     def stage1_effort_decision(self, historical_trades: List[TradeData], round_num: int) -> Tuple[str, Tuple[str, ForecastData]]:
         """
         Stage 1: Choose effort level to maximize expected profit.
@@ -143,21 +171,58 @@ class AkerlofSeller:
         # Choose effort level with maximum expected profit
         optimal_effort = max(effort_profits.keys(), key=lambda x: effort_profits[x])
         
+        # Convert effort string to numeric value for economic tools
+        effort_numeric = self._convert_effort_to_numeric(optimal_effort)
+        
         # Generate forecast with chosen effort level
         sector = self.context.get('sector', 'tech')  # Get sector from context, default to 'tech'
         horizon = self.context.get('horizon', 1)     # Get forecast horizon from context, default to 1
         
-        forecast_result = sector_forecast_impl(
+        forecast_data = sector_forecast_impl(
             self.market_model,
             config_data=self.context,
             sector=sector,
             horizon=horizon,
-            effort=optimal_effort
+            effort=effort_numeric
         )
         forecast_id = f"{self.seller_id}_forecast_r{round_num}_{optimal_effort}"
-        forecast_data = forecast_result.forecast
+        
+        # Store forecast in market state for buyer access
+        self.market_state.knowledge_good_forecasts[forecast_id] = forecast_data
 
         return optimal_effort, (forecast_id, forecast_data)
+
+    def generate_forecast_with_effort(self, effort_level: str, round_num: int) -> Tuple[str, ForecastData]:
+        """
+        Generate forecast with specified effort level for testing purposes.
+        
+        Args:
+            effort_level: String effort level ('high', 'medium', 'low')
+            round_num: Round number for forecast ID
+            
+        Returns:
+            Tuple of (forecast_id, forecast_data)
+        """
+        # Convert effort string to numeric value for economic tools
+        effort_numeric = self._convert_effort_to_numeric(effort_level)
+        
+        # Generate forecast with chosen effort level
+        sector = self.context.get('sector', 'tech')
+        horizon = self.context.get('horizon', 1)
+        
+        forecast_data = sector_forecast_impl(
+            self.market_model,
+            config_data=self.context,
+            sector=sector,
+            horizon=horizon,
+            effort=effort_numeric
+        )
+        forecast_id = f"{self.seller_id}_forecast_r{round_num}_{effort_level}"
+        
+        # Store forecast in market state for buyer access
+        self.market_state.knowledge_good_forecasts[forecast_id] = forecast_data
+        
+        return forecast_id, forecast_data
 
 
     def stage2_marketing_decision(self, effort_level: str, good_id: str, market_competition: List[Offer]) -> Offer:

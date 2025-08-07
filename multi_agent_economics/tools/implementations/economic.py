@@ -8,6 +8,10 @@ Pydantic response models directly. Wrappers only handle budget/logging.
 import numpy as np
 from typing import Dict, List, Any, Optional
 from ..schemas import SectorForecastResponse, MonteCarloVarResponse, PriceNoteResponse
+from ...models.market_for_finance import (
+    ForecastData, build_confusion_matrix, generate_forecast_signal, 
+    transition_regimes, categorical_draw
+)
 
 
 def sector_forecast_impl(
@@ -16,24 +20,29 @@ def sector_forecast_impl(
     sector: str, 
     horizon: int, 
     effort: float
-) -> SectorForecastResponse:
+) -> ForecastData:
     """
-    Generate sector forecast with complete parameter unpacking.
+    Generate sector forecast directly as ForecastData using market framework.
+    
+    Uses the proper market_for_finance forecasting logic:
+    1. Map effort to forecast quality
+    2. Build confusion matrix based on quality
+    3. Predict true next regime (or simulate it)
+    4. Generate forecast signal using confusion matrix
     
     Args:
         market_model: Complete market model with state
         config_data: Full configuration data
         sector: Sector to forecast
-        horizon: Number of periods
+        horizon: Number of periods (not used in ForecastData but kept for interface)
         effort: Effort level allocated
     
     Returns:
-        SectorForecastResponse: Complete Pydantic response
+        ForecastData: Direct forecast data for market framework
     """
     # Unpack parameters from market state and config
     state = market_model.state
     tool_params = config_data.get("tool_parameters", {}).get("sector_forecast", {})
-    market_data = config_data.get("market_data", {})
     
     # Determine quality tier from effort
     effort_thresholds = tool_params.get("effort_thresholds", {"high": 5.0, "medium": 2.0})
@@ -52,58 +61,47 @@ def sector_forecast_impl(
     
     quality_params = quality_tiers.get(quality_tier, quality_tiers["low"])
     
-    # Get sector parameters from market state
-    regime_params = state.regime_parameters.get(sector, {})
-    current_regime = state.current_regimes.get(sector)
+    # Get current regime and transition information
+    current_regime = state.current_regimes.get(sector, 0)
     
-    # Get base market data
+    # Determine true next regime
+    # For forecasting, we need to simulate what the true next regime will be
+    # Get transition matrix if available, otherwise assume simple regime persistence
+    market_data = config_data.get("market_data", {})
     sectors_data = market_data.get("sectors", {})
-    default_data = market_data.get("default_sector", {"mean": 0.06, "std": 0.15})
-    base_params = sectors_data.get(sector, default_data)
     
-    # Generate forecast
-    forecast = []
-    warnings = []
-    
-    # Use regime-switching model if available
-    if regime_params and current_regime is not None and current_regime in regime_params:
-        regime_data = regime_params[current_regime]
-        
-        # Extract regime parameters (handle both Pydantic objects and dicts)
-        if hasattr(regime_data, 'mu'):
-            regime_mu = regime_data.mu
-            regime_sigma = regime_data.sigma
-        else:
-            regime_mu = regime_data.get('mu', base_params["mean"])
-            regime_sigma = regime_data.get('sigma', base_params["std"])
-        
-        # Generate forecast with regime parameters
-        for _ in range(horizon):
-            base_return = np.random.normal(regime_mu, regime_sigma)
-            noise = np.random.normal(0, regime_sigma * quality_params.get("noise_factor", 0.3))
-            forecast.append(float(base_return + noise))
+    # Simple regime transition simulation (can be made more sophisticated)
+    # For now, assume 80% chance of staying in current regime, 20% chance of switching
+    if hasattr(state, 'transition_matrices') and sector in state.transition_matrices:
+        # Use proper transition matrix if available
+        transition_matrix = state.transition_matrices[sector]
+        transition_probs = transition_matrix[current_regime]
+        true_next_regime = categorical_draw(transition_probs)
     else:
-        # Use basic market data parameters
-        warnings.append("No regime parameters available, using base market data")
-        for _ in range(horizon):
-            base_return = np.random.normal(base_params["mean"], base_params["std"])
-            noise = np.random.normal(0, base_params["std"] * quality_params.get("noise_factor", 0.3))
-            forecast.append(float(base_return + noise))
+        # Simple fallback: mostly stay in current regime
+        regime_persistence = 0.8
+        if np.random.random() < regime_persistence:
+            true_next_regime = current_regime
+        else:
+            # Switch to the other regime (assuming binary regimes 0,1)
+            true_next_regime = 1 - current_regime
     
-    # Check if sector exists in known sectors
-    if sector not in sectors_data and sector not in state.regime_parameters:
-        warnings.append(f"Sector '{sector}' not in known sectors, using default parameters")
+    # Map quality tier to forecast quality parameter
+    forecast_quality = quality_params.get("confidence", 0.7)
     
-    return SectorForecastResponse(
+    # Build confusion matrix for this forecast quality
+    # Assuming binary regime system (K=2)
+    K = 2  # Number of regimes
+    base_quality = 0.6  # Base forecasting accuracy
+    confusion_matrix = build_confusion_matrix(forecast_quality, K, base_quality)
+    
+    # Generate forecast signal using proper market framework
+    forecast_result = generate_forecast_signal(true_next_regime, confusion_matrix)
+    
+    return ForecastData(
         sector=sector,
-        horizon=horizon,
-        forecast=forecast,
-        quality_tier=quality_tier,
-        confidence=quality_params.get("confidence", 0.5),
-        effort_requested=effort,
-        effort_used=effort,  # Could be adjusted based on budget constraints
-        regime_used=current_regime,
-        warnings=warnings
+        predicted_regime=forecast_result["predicted_regime"],
+        confidence_vector=forecast_result["confidence_vector"]
     )
 
 

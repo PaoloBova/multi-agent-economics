@@ -18,11 +18,7 @@ class SectorForecastResponse(BaseModel):
     horizon: int = Field(..., description="Number of periods forecasted", ge=1)
     forecast: List[float] = Field(..., description="Forecasted returns for each period")
     quality_tier: Literal["low", "medium", "high"] = Field(..., description="Quality tier based on effort")
-    confidence: float = Field(..., description="Confidence level of forecast", ge=0, le=1)
-    effort_requested: float = Field(..., description="Originally requested effort level", ge=0)
     effort_used: float = Field(..., description="Actual effort used after budget constraints", ge=0)
-    regime_used: Optional[int] = Field(None, description="Regime index used for forecasting")
-    warnings: List[str] = Field(default_factory=list, description="Any warnings or constraints applied")
 
 
 class MonteCarloVarResponse(BaseModel):

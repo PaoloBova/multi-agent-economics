@@ -25,14 +25,16 @@ def create_economic_tools(market_model, config_data: Dict[str, Any]) -> List[Fun
         
         # Budget management
         market_state = market_model.state
-        agent_id = getattr(market_state, 'current_agent_id', 'unknown')
+        agent_id = config_data.get('agent_id')
+        if not agent_id:
+            raise ValueError("Agent ID not found in config_data")
         available_budget = market_state.budgets.get(agent_id, 0.0)
         
         if effort > available_budget:
             effort = available_budget  # Limit effort to available budget
         
         # Deduct budget
-        market_state.budgets[agent_id] = market_state.budgets.get(agent_id, 0) - effort
+        market_state.budgets[agent_id] = available_budget - effort
         
         # Record action
         if hasattr(market_state, 'tool_usage'):
