@@ -11,8 +11,9 @@ from datetime import datetime, timedelta
 
 # AutoGen memory imports - required
 from autogen_core.memory import MemoryContent, MemoryMimeType, MemoryQueryResult, UpdateContextResult
-from autogen_core.models import ChatCompletionContext, SystemMessage
-from autogen_core.base import CancellationToken
+from autogen_core.model_context import ChatCompletionContext
+from autogen_core.models import SystemMessage
+from autogen_core import CancellationToken
 
 from .artifacts import Workspace, Artifact
 

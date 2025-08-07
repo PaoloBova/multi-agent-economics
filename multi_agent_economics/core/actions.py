@@ -61,6 +61,10 @@ class ActionLogger:
         external = [a for a in self.external_actions if a.actor == actor]
         return {"internal": internal, "external": external}
     
+    def get_all_actions(self):
+        """Get all actions (internal and external)."""
+        return self.internal_actions + self.external_actions
+    
     def clear(self):
         """Clear all logged actions."""
         self.internal_actions.clear()

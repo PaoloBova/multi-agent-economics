@@ -14,25 +14,22 @@ from ..schemas import (
 from ...core.artifacts import Artifact
 
 
-def load_artifact_impl(agent, artifact_id: str) -> ArtifactLoadResponse:
+def load_artifact_impl(workspace_memory, artifact_id: str) -> ArtifactLoadResponse:
     """
-    Load artifact with complete agent context unpacking.
+    Load artifact using workspace memory.
     
     Args:
-        agent: Complete agent object with memory[0] as WorkspaceMemory, budget_manager, etc.
+        workspace_memory: WorkspaceMemory instance for artifact management
         artifact_id: ID of artifact to load
     
     Returns:
         ArtifactLoadResponse: Complete Pydantic response
     """
-    # Unpack agent context
-    workspace_memory = agent.memory[0] if agent.memory else None
-    
     if not workspace_memory:
         return ArtifactLoadResponse(
             status="error",
             artifact_id=artifact_id,
-            message="No workspace memory available (agent.memory[0] not found)"
+            message="No workspace memory available"
         )
     
     try:
@@ -106,34 +103,34 @@ def unload_artifact_impl(agent, artifact_id: str) -> ArtifactUnloadResponse:
 
 
 def write_artifact_impl(
-    agent,
+    workspace_memory,
     artifact_id: str,
     content: Dict[str, Any],
-    artifact_type: str = "analysis"
+    artifact_type: str = "analysis",
+    agent_name: str = "unknown_agent"
 ) -> ArtifactWriteResponse:
     """
-    Write artifact with complete agent context unpacking.
+    Write artifact using workspace memory.
     
     Args:
-        agent: Complete agent object with workspace_memory, workspace, etc.
+        workspace_memory: WorkspaceMemory instance for artifact management
         artifact_id: ID for the new/updated artifact
         content: Content payload for the artifact
         artifact_type: Type of artifact being created
+        agent_name: Name of agent creating the artifact
     
     Returns:
         ArtifactWriteResponse: Complete Pydantic response
     """
-    # Unpack agent context
-    workspace_memory = agent.memory[0] if agent.memory else None
-    workspace = getattr(agent, 'workspace', None)
-    agent_name = getattr(agent, 'name', 'unknown_agent')
-    
     if not workspace_memory:
         return ArtifactWriteResponse(
             status="error",
             artifact_id=artifact_id,
-            message="No workspace memory available (agent.memory[0] not found)"
+            message="No workspace memory available"
         )
+    
+    # Get workspace from workspace_memory
+    workspace = workspace_memory.workspace
     
     try:
         # Create real artifact and store it in workspace
@@ -179,31 +176,30 @@ def write_artifact_impl(
 
 
 def share_artifact_impl(
-    agent,
+    workspace_memory,
     artifact_id: str,
     target_agent: str
 ) -> ArtifactShareResponse:
     """
-    Share artifact with complete agent context unpacking.
+    Share artifact using workspace memory.
     
     Args:
-        agent: Complete agent object with workspace_memory, workspace, etc.
+        workspace_memory: WorkspaceMemory instance for artifact management
         artifact_id: ID of artifact to share
         target_agent: Agent ID to share with (format: "org.role")
     
     Returns:
         ArtifactShareResponse: Complete Pydantic response
     """
-    # Unpack agent context
-    workspace_memory = agent.memory[0] if agent.memory else None
-    workspace = getattr(agent, 'workspace', None)
-    
     if not workspace_memory:
         return ArtifactShareResponse(
             status="error",
             artifact_id=artifact_id,
-            message="No workspace memory available (agent.memory[0] not found)"
+            message="No workspace memory available"
         )
+    
+    # Get workspace from workspace_memory  
+    workspace = workspace_memory.workspace
     
     try:
         # Extract target organization from agent ID
@@ -302,26 +298,23 @@ def share_artifact_impl(
         )
 
 
-def list_artifacts_impl(agent) -> ArtifactListResponse:
+def list_artifacts_impl(workspace_memory) -> ArtifactListResponse:
     """
-    List artifacts with complete agent context unpacking.
+    List artifacts using workspace memory.
     
     Args:
-        agent: Complete agent object with workspace_memory, etc.
+        workspace_memory: WorkspaceMemory instance for artifact management
     
     Returns:
         ArtifactListResponse: Complete Pydantic response
     """
-    # Unpack agent context
-    workspace_memory = agent.memory[0] if agent.memory else None
-    
     if not workspace_memory:
         return ArtifactListResponse(
             status="error",
             workspace_listing="[workspace] No workspace memory available",
             loaded_artifacts=[],
             loaded_status={},
-            message="No workspace memory available (agent.memory[0] not found)"
+            message="No workspace memory available"
         )
     
     try:

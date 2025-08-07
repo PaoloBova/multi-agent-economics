@@ -9,7 +9,7 @@ This module provides:
 """
 
 from .economic import create_economic_tools
-from .artifacts import create_artifact_tools_for_agent
+from .artifacts import create_artifact_tools
 from .unified import create_all_tools
 from .schemas import (
     SectorForecastResponse,
@@ -25,7 +25,7 @@ from .schemas import (
 __all__ = [
     # Core tool factories
     'create_economic_tools',
-    'create_artifact_tools_for_agent', 
+    'create_artifact_tools', 
     'create_all_tools',
     
     # Response schemas

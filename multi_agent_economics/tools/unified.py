@@ -8,7 +8,7 @@ from typing import Dict, List, Any, Optional
 from autogen_core.tools import FunctionTool
 
 from .economic import create_economic_tools  
-from .artifacts import create_artifact_tools_for_agent
+from .artifacts import create_artifact_tools
 
 
 def create_all_tools(market_model, config_data: Dict[str, Any], 

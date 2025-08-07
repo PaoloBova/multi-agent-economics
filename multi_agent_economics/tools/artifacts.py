@@ -19,7 +19,7 @@ from .schemas import (
 from ..core.actions import InternalAction
 
 
-def create_artifact_tools_for_agent(agent, context={}) -> List[FunctionTool]:
+def create_artifact_tools(context) -> List[FunctionTool]:
     """Create artifact tools with simple wrappers."""
     
     DEFAULT_COSTS = {
@@ -30,7 +30,7 @@ def create_artifact_tools_for_agent(agent, context={}) -> List[FunctionTool]:
         "tool:list_artifacts": 0.0
     }
 
-    def _handle_budget_and_logging(agent, context, tool_name, inputs, 
+    def _handle_budget_and_logging(agent_name, context, tool_name, inputs, 
     error_response_class, **error_kwargs):
         """Handle budget charging and action logging with consistent error 
     handling."""
@@ -40,7 +40,7 @@ def create_artifact_tools_for_agent(agent, context={}) -> List[FunctionTool]:
         budget_cost = context.get('budget_costs', {}).get(tool_name, DEFAULT_COSTS.get(tool_name, 0.0))
 
         if budget_manager and budget_cost > 0:
-            budget_category = f"{agent.name}_artifacts"
+            budget_category = f"{agent_name}_artifacts"
             success = budget_manager.charge_credits(budget_category, budget_cost, tool_name)
             if not success:
                 return error_response_class(
@@ -53,7 +53,7 @@ def create_artifact_tools_for_agent(agent, context={}) -> List[FunctionTool]:
         action_logger = context.get('action_logger', None)
         if action_logger:
             action = InternalAction(
-                actor=agent.name,
+                actor=agent_name,
                 action=tool_name.replace("tool:", ""),
                 inputs=inputs,
                 tool=tool_name.replace("tool:", ""),
@@ -69,8 +69,9 @@ def create_artifact_tools_for_agent(agent, context={}) -> List[FunctionTool]:
     ) -> ArtifactLoadResponse:
         """Load an artifact into memory for injection in next prompt."""
         # Handle budget and logging
+        agent_name = context.get('agent_name', 'unknown')
         error_response = _handle_budget_and_logging(
-            agent,
+            agent_name,
             context,
             "tool:load_artifact",
             {"artifact_id": artifact_id},
@@ -81,7 +82,8 @@ def create_artifact_tools_for_agent(agent, context={}) -> List[FunctionTool]:
             return error_response
 
         # Call implementation - it handles ALL the work
-        return load_artifact_impl(agent, artifact_id)
+        workspace_memory = context.get('workspace_memory')
+        return load_artifact_impl(workspace_memory, artifact_id)
     
     
     # Tool 2: Unload Artifact
@@ -90,8 +92,9 @@ def create_artifact_tools_for_agent(agent, context={}) -> List[FunctionTool]:
     ) -> ArtifactUnloadResponse:
         """Unload an artifact from memory."""
         # Handle budget and logging
+        agent_name = context.get('agent_name', 'unknown')
         error_response = _handle_budget_and_logging(
-            agent,
+            agent_name,
             context,
             "tool:unload_artifact",
             {"artifact_id": artifact_id},
@@ -102,7 +105,8 @@ def create_artifact_tools_for_agent(agent, context={}) -> List[FunctionTool]:
             return error_response
 
         # Call implementation
-        return unload_artifact_impl(agent, artifact_id)
+        workspace_memory = context.get('workspace_memory')
+        return unload_artifact_impl(workspace_memory, artifact_id)
     
     
     # Tool 3: Write Artifact
@@ -113,8 +117,9 @@ def create_artifact_tools_for_agent(agent, context={}) -> List[FunctionTool]:
     ) -> ArtifactWriteResponse:
         """Write or update an artifact in the workspace."""
         # Handle budget and logging
+        agent_name = context.get('agent_name', 'unknown')
         error_response = _handle_budget_and_logging(
-            agent,
+            agent_name,
             context,
             "tool:write_artifact",
             {
@@ -128,7 +133,9 @@ def create_artifact_tools_for_agent(agent, context={}) -> List[FunctionTool]:
         if error_response:
             return error_response
         # Call implementation
-        return write_artifact_impl(agent, artifact_id, content, artifact_type)
+        workspace_memory = context.get('workspace_memory')
+        agent_name = context.get('agent_name', 'unknown')
+        return write_artifact_impl(workspace_memory, artifact_id, content, artifact_type, agent_name)
     
     
     # Tool 4: Share Artifact
@@ -139,8 +146,9 @@ def create_artifact_tools_for_agent(agent, context={}) -> List[FunctionTool]:
         """Share an artifact with another agent."""
         
         # Handle budget and logging
+        agent_name = context.get('agent_name', 'unknown')
         error_response = _handle_budget_and_logging(
-            agent,
+            agent_name,
             context,
             "tool:share_artifact",
             {
@@ -154,7 +162,8 @@ def create_artifact_tools_for_agent(agent, context={}) -> List[FunctionTool]:
         if error_response:
             return error_response
         # Call implementation
-        return share_artifact_impl(agent, artifact_id, target_agent)
+        workspace_memory = context.get('workspace_memory')
+        return share_artifact_impl(workspace_memory, artifact_id, target_agent)
     
     
     # Tool 5: List Artifacts
@@ -162,8 +171,9 @@ def create_artifact_tools_for_agent(agent, context={}) -> List[FunctionTool]:
         """List all artifacts available in the workspace."""
         
         # Handle budget and logging
+        agent_name = context.get('agent_name', 'unknown')
         error_response = _handle_budget_and_logging(
-            agent,
+            agent_name,
             context,
             "tool:list_artifacts",
             {},
@@ -172,7 +182,8 @@ def create_artifact_tools_for_agent(agent, context={}) -> List[FunctionTool]:
         if error_response:
             return error_response
         # Call implementation
-        return list_artifacts_impl(agent)
+        workspace_memory = context.get('workspace_memory')
+        return list_artifacts_impl(workspace_memory)
     
 
     # Return tools
