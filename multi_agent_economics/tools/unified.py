@@ -11,8 +11,7 @@ from .economic import create_economic_tools
 from .artifacts import create_artifact_tools
 
 
-def create_all_tools(market_model, config_data: Dict[str, Any], 
-                    agent=None) -> List[FunctionTool]:
+def create_all_tools(market_model, config_data: Dict[str, Any]) -> List[FunctionTool]:
     """
     Create both economic and artifact tools.
     
@@ -28,8 +27,6 @@ def create_all_tools(market_model, config_data: Dict[str, Any],
     economic_tools = create_economic_tools(market_model, config_data)
     
     # Add artifact tools if agent provided
-    if agent is not None:
-        artifact_tools = create_artifact_tools_for_agent(agent)
-        return economic_tools + artifact_tools
-    else:
-        return economic_tools
+    artifact_tools = create_artifact_tools(context=config_data)
+
+    return economic_tools + artifact_tools
