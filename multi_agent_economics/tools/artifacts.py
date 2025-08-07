@@ -19,40 +19,67 @@ from .schemas import (
 from ..core.actions import InternalAction
 
 
-def create_artifact_tools_for_agent(agent) -> List[FunctionTool]:
+def create_artifact_tools_for_agent(agent, context={}) -> List[FunctionTool]:
     """Create artifact tools with simple wrappers."""
     
+    DEFAULT_COSTS = {
+        "tool:load_artifact": 0.2,
+        "tool:write_artifact": 0.5,
+        "tool:share_artifact": 0.3,
+        "tool:unload_artifact": 0.0,
+        "tool:list_artifacts": 0.0
+    }
+
+    def _handle_budget_and_logging(agent, context, tool_name, inputs, 
+    error_response_class, **error_kwargs):
+        """Handle budget charging and action logging with consistent error 
+    handling."""
+
+        # Budget management
+        budget_manager = context.get('budget_manager', None)
+        budget_cost = context.get('budget_costs', {}).get(tool_name, DEFAULT_COSTS.get(tool_name, 0.0))
+
+        if budget_manager and budget_cost > 0:
+            budget_category = f"{agent.name}_artifacts"
+            success = budget_manager.charge_credits(budget_category, budget_cost, tool_name)
+            if not success:
+                return error_response_class(
+                    status="error",
+                    message="Insufficient credits",
+                    **error_kwargs
+                )
+
+        # Action logging
+        action_logger = context.get('action_logger', None)
+        if action_logger:
+            action = InternalAction(
+                actor=agent.name,
+                action=tool_name.replace("tool:", ""),
+                inputs=inputs,
+                tool=tool_name.replace("tool:", ""),
+                cost=budget_cost
+            )
+            action_logger.log_internal_action(action)
+
+        return None  # No error
+
     # Tool 1: Load Artifact
     async def load_artifact(
         artifact_id: Annotated[str, "ID of the artifact to load into memory"]
     ) -> ArtifactLoadResponse:
         """Load an artifact into memory for injection in next prompt."""
-        
-        # Budget management (simple credit deduction)
-        budget_manager = getattr(agent, 'budget_manager', None)
-        if budget_manager:
-            # Use agent-specific budget category
-            budget_category = f"{agent.name}_artifacts"
-            success = budget_manager.charge_credits(budget_category, 0.2, "tool:load_artifact")
-            if not success:
-                return ArtifactLoadResponse(
-                    status="error",
-                    artifact_id=artifact_id, 
-                    message="Insufficient credits"
-                )
-        
-        # Record action
-        action_logger = getattr(agent, 'action_logger', None)
-        if action_logger:
-            action = InternalAction(
-                actor=agent.name,
-                action="load_artifact",
-                inputs={"artifact_id": artifact_id},
-                tool="load_artifact",
-                cost=0.2
-            )
-            action_logger.log_internal_action(action)
-        
+        # Handle budget and logging
+        error_response = _handle_budget_and_logging(
+            agent,
+            context,
+            "tool:load_artifact",
+            {"artifact_id": artifact_id},
+            ArtifactLoadResponse,
+            artifact_id=artifact_id
+        )
+        if error_response:
+            return error_response
+
         # Call implementation - it handles ALL the work
         return load_artifact_impl(agent, artifact_id)
     
@@ -62,19 +89,18 @@ def create_artifact_tools_for_agent(agent) -> List[FunctionTool]:
         artifact_id: Annotated[str, "ID of the artifact to unload from memory"]
     ) -> ArtifactUnloadResponse:
         """Unload an artifact from memory."""
-        
-        # Record action (no cost for unloading)
-        action_logger = getattr(agent, 'action_logger', None)
-        if action_logger:
-            action = InternalAction(
-                actor=agent.name,
-                action="unload_artifact",
-                inputs={"artifact_id": artifact_id},
-                tool="unload_artifact",
-                cost=0.0
-            )
-            action_logger.log_internal_action(action)
-        
+        # Handle budget and logging
+        error_response = _handle_budget_and_logging(
+            agent,
+            context,
+            "tool:unload_artifact",
+            {"artifact_id": artifact_id},
+            ArtifactUnloadResponse,
+            artifact_id=artifact_id
+        )
+        if error_response:
+            return error_response
+
         # Call implementation
         return unload_artifact_impl(agent, artifact_id)
     
@@ -86,32 +112,21 @@ def create_artifact_tools_for_agent(agent) -> List[FunctionTool]:
         artifact_type: Annotated[str, "Type of artifact"] = "analysis"
     ) -> ArtifactWriteResponse:
         """Write or update an artifact in the workspace."""
-        
-        # Budget management
-        budget_manager = getattr(agent, 'budget_manager', None)
-        if budget_manager:
-            # Use agent-specific budget category
-            budget_category = f"{agent.name}_artifacts"
-            success = budget_manager.charge_credits(budget_category, 0.5, "tool:write_artifact")
-            if not success:
-                return ArtifactWriteResponse(
-                    status="error",
-                    artifact_id=artifact_id,
-                    message="Insufficient credits"
-                )
-        
-        # Record action
-        action_logger = getattr(agent, 'action_logger', None)
-        if action_logger:
-            action = InternalAction(
-                actor=agent.name,
-                action="write_artifact",
-                inputs={"artifact_id": artifact_id, "artifact_type": artifact_type},
-                tool="write_artifact",
-                cost=0.5
-            )
-            action_logger.log_internal_action(action)
-        
+        # Handle budget and logging
+        error_response = _handle_budget_and_logging(
+            agent,
+            context,
+            "tool:write_artifact",
+            {
+                "artifact_id": artifact_id,
+                "content": content,
+                "artifact_type": artifact_type
+            },
+            ArtifactWriteResponse,
+            artifact_id=artifact_id
+        )
+        if error_response:
+            return error_response
         # Call implementation
         return write_artifact_impl(agent, artifact_id, content, artifact_type)
     
@@ -123,31 +138,21 @@ def create_artifact_tools_for_agent(agent) -> List[FunctionTool]:
     ) -> ArtifactShareResponse:
         """Share an artifact with another agent."""
         
-        # Budget management
-        budget_manager = getattr(agent, 'budget_manager', None)
-        if budget_manager:
-            # Use agent-specific budget category
-            budget_category = f"{agent.name}_artifacts"
-            success = budget_manager.charge_credits(budget_category, 0.3, "tool:share_artifact")
-            if not success:
-                return ArtifactShareResponse(
-                    status="error",
-                    artifact_id=artifact_id,
-                    message="Insufficient credits"
-                )
-        
-        # Record action
-        action_logger = getattr(agent, 'action_logger', None)
-        if action_logger:
-            action = InternalAction(
-                actor=agent.name,
-                action="share_artifact",
-                inputs={"artifact_id": artifact_id, "target_agent": target_agent},
-                tool="share_artifact",
-                cost=0.3
-            )
-            action_logger.log_internal_action(action)
-        
+        # Handle budget and logging
+        error_response = _handle_budget_and_logging(
+            agent,
+            context,
+            "tool:share_artifact",
+            {
+                "artifact_id": artifact_id,
+                "target_agent": target_agent
+            },
+            ArtifactShareResponse,
+            artifact_id=artifact_id,
+            target_agent=target_agent
+        )
+        if error_response:
+            return error_response
         # Call implementation
         return share_artifact_impl(agent, artifact_id, target_agent)
     
@@ -156,22 +161,20 @@ def create_artifact_tools_for_agent(agent) -> List[FunctionTool]:
     async def list_artifacts() -> ArtifactListResponse:
         """List all artifacts available in the workspace."""
         
-        # Record action (no cost for listing)
-        action_logger = getattr(agent, 'action_logger', None)
-        if action_logger:
-            action = InternalAction(
-                actor=agent.name,
-                action="list_artifacts",
-                inputs={},
-                tool="list_artifacts",
-                cost=0.0
-            )
-            action_logger.log_internal_action(action)
-        
+        # Handle budget and logging
+        error_response = _handle_budget_and_logging(
+            agent,
+            context,
+            "tool:list_artifacts",
+            {},
+            ArtifactListResponse
+        )
+        if error_response:
+            return error_response
         # Call implementation
         return list_artifacts_impl(agent)
     
-    
+
     # Return tools
     return [
         FunctionTool(load_artifact, description="Load artifact into memory"),
