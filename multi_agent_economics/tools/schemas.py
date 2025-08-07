@@ -84,13 +84,6 @@ class ArtifactWriteResponse(BaseModel):
     size_chars: Optional[int] = Field(None, description="Size of written content in characters")
 
 
-class ArtifactShareResponse(BaseModel):
-    """Response model for artifact share tool."""
-    status: Literal["shared", "already_shared", "error"] = Field(..., description="Operation status")
-    artifact_id: str = Field(..., description="ID of the artifact")
-    target: Optional[str] = Field(None, description="Target organization shared with")
-    message: str = Field(..., description="Human-readable status message")
-
 
 class ArtifactListResponse(BaseModel):
     """Response model for artifact list tool."""

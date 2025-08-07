@@ -21,11 +21,25 @@ Requires: AutoGen 0.6.4, OpenAI API key in .env file
 import asyncio
 import sys
 import os
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
+
+# Setup logging for debugging
+log_file = Path("./demo_artifact_tools.log")
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file, mode='w'),  # Overwrite log file each run
+        # logging.StreamHandler()  # Also log to console
+    ]
+)
+logger = logging.getLogger('demo_artifact_tools')
 
 # Add project root to path
 project_root = Path(__file__).parent
@@ -46,7 +60,7 @@ except ImportError as e:
 
 # Import our tools and core components
 from multi_agent_economics.tools.artifacts import create_artifact_tools
-from multi_agent_economics.core.artifacts import Workspace
+from multi_agent_economics.core.artifacts import Workspace, ArtifactManager
 from multi_agent_economics.core.workspace_memory import WorkspaceMemory
 from multi_agent_economics.core.budget import BudgetManager
 from multi_agent_economics.core.actions import ActionLogger
@@ -74,10 +88,19 @@ async def create_poetry_team_with_simulation():
     
     # Create workspace directory in current directory for easy inspection
     workspace_dir = Path("./poetry_collaboration_workspace")
-    workspace = Workspace(workspace_id="poetry_collaboration", workspace_dir=workspace_dir)
+    
+    # Create ArtifactManager and single shared workspace for all agents
+    from multi_agent_economics.core.artifacts import ArtifactManager
+    artifact_manager = ArtifactManager(workspace_dir.parent)
+    logger.info(f"Created ArtifactManager with base directory: {workspace_dir.parent.absolute()}")
+    
+    # Create single shared workspace for all agents to use
+    shared_workspace = artifact_manager.create_workspace("poetry_collaboration")
+    logger.info(f"Created shared workspace: {shared_workspace.workspace_dir}")
+    
     budget_manager = BudgetManager()
     action_logger = ActionLogger()
-    print(f"✓ Created simulation workspace at {workspace_dir.absolute()}, budget manager, and action logger")
+    print(f"✓ Created artifact manager, shared workspace for all agents, budget manager, and action logger")
     
     # Initialize agent budgets (simulation credits, not real costs)
     initial_budget_per_agent = 10.0
@@ -86,10 +109,10 @@ async def create_poetry_team_with_simulation():
     budget_manager.initialize_budget("Editor_artifacts", initial_budget_per_agent)
     print(f"✓ Initialized {initial_budget_per_agent} simulation credits per agent")
     
-    # Create workspace memory instances  
-    theme_memory = WorkspaceMemory(name="ThemeCreator_workspace", workspace=workspace)
-    verse_memory = WorkspaceMemory(name="VerseWriter_workspace", workspace=workspace)
-    editor_memory = WorkspaceMemory(name="Editor_workspace", workspace=workspace)
+    # Create workspace memory instances - all agents share the same workspace
+    theme_memory = WorkspaceMemory(name="ThemeCreator_workspace", workspace=shared_workspace)
+    verse_memory = WorkspaceMemory(name="VerseWriter_workspace", workspace=shared_workspace)
+    editor_memory = WorkspaceMemory(name="Editor_workspace", workspace=shared_workspace)
     
     print("✓ Created workspace memories for each agent")
     
@@ -129,11 +152,26 @@ async def create_poetry_team_with_simulation():
 
 Your role is to:
 1. Create initial themes and structures for poems using write_artifact
-2. Share your themes with other agents using share_artifact  
-3. Use list_artifacts to track your work
+2. Use list_artifacts to see what artifacts are available in the shared workspace
+3. Communicate naturally with your collaborators about your creative work
 
-Always use the artifact tools to store and share your creative work. 
-Create a theme artifact called 'poem_theme' with your initial ideas."""
+ARTIFACT GUIDELINES:
+- Use descriptive artifact IDs (e.g., "digital_connections_theme", "nature_poem_structure") 
+- Content should always be a dictionary with meaningful structure
+- All agents share the same workspace, so artifacts are automatically visible to everyone
+
+COLLABORATION APPROACH:
+- Mention your artifacts in conversation to draw attention to them
+- Example: "I've created a theme called 'digital_connections_theme' - VerseWriter, what verses does that inspire you to write?"
+- Use natural language to guide the creative process
+- Ask questions and provide feedback on others' work
+
+Example workflow:
+1. Create theme: write_artifact(artifact_id="digital_connections_theme", content={...}, artifact_type="theme")
+2. Announce it: "I've just created a 'digital_connections_theme' artifact exploring how technology connects us - VerseWriter, take a look and see what poetry it inspires!"
+3. Collaborate: Discuss the creative direction and help guide the team
+
+Always use the artifact tools to store your creative work, and communicate naturally with your collaborative team."""
     )
     
     verse_agent = AssistantAgent(
@@ -143,15 +181,32 @@ Create a theme artifact called 'poem_theme' with your initial ideas."""
         memory=[verse_memory],
         reflect_on_tool_use=True,
         max_tool_iterations=10,
-        system_message="""You are a skilled verse writer who creates poetry based on shared themes.
+        system_message="""You are a skilled verse writer who creates poetry based on themes in the shared workspace.
 
 Your role is to:
-1. Load shared themes using load_artifact
-2. Write verses based on the loaded themes using write_artifact  
-3. Share your verses with other agents using share_artifact
-4. List artifacts to see available materials
+1. Check for available themes using list_artifacts (look for artifacts marked with * if new)
+2. Load themes you want to work with using load_artifact
+3. Write verses based on the loaded themes using write_artifact  
+4. Communicate naturally about your creative process
 
-Always load the 'poem_theme' artifact first, then create verses in a new artifact."""
+ARTIFACT GUIDELINES:
+- Look for theme artifacts in the shared workspace (marked with * if new)
+- Use descriptive verse artifact IDs (e.g., "digital_dreams_verses", "nature_reflections_stanzas") 
+- Content should be a dictionary with your verse data
+- All agents can see your artifacts once you create them
+
+COLLABORATION APPROACH:
+- Respond to teammates when they mention creating or discussing artifacts
+- Feel free to ask questions or make suggestions about the creative direction
+- Example: "I saw your digital connections theme - I'll create some verses exploring virtual relationships and human connection"
+
+Example workflow:
+1. Check for available themes: list_artifacts()
+2. Load inspiring theme: load_artifact(artifact_id="digital_connections_theme")
+3. Create verses: write_artifact(artifact_id="digital_dreams_verses", content={...}, artifact_type="verses")
+4. Announce: "Editor, I've created 'digital_dreams_verses' inspired by the digital connections theme - ready for your editorial touch!"
+
+Always use the artifact tools and communicate naturally with your creative team about the collaborative process."""
     )
     
     editor_agent = AssistantAgent(
@@ -161,22 +216,42 @@ Always load the 'poem_theme' artifact first, then create verses in a new artifac
         memory=[editor_memory],
         reflect_on_tool_use=True,
         max_tool_iterations=10,
-        system_message="""You are a poetry editor who creates final polished poems from collaborative work.
+        system_message="""You are a poetry editor who creates final polished poems from collaborative materials in the shared workspace.
 
 Your role is to:
-1. Load all available artifacts (theme and verses) using load_artifact
-2. Create a final polished poem using write_artifact
-3. Clean up by unloading artifacts using unload_artifact when done
-4. List artifacts to track the creative process
+1. Check for available materials using list_artifacts (look for artifacts marked with * if new)
+2. Load themes and verses using load_artifact to understand the creative vision
+3. Create a final polished poem using write_artifact that brings everything together
+4. Clean up your memory using unload_artifact when done
+5. Provide thoughtful feedback and editorial guidance
 
-Load both 'poem_theme' and any verse artifacts, then create a final 'completed_poem' artifact."""
+ARTIFACT GUIDELINES:
+- Look for theme and verse artifacts in the shared workspace (marked with * if new)
+- Use descriptive names for final poems (e.g., "digital_connections_final", "nature_symphony_complete")
+- Content should include the polished poem text and metadata
+- Clean up loaded artifacts when finished to keep your memory tidy
+
+COLLABORATION APPROACH:
+- Acknowledge the creative contributions from your teammates
+- Provide editorial feedback and suggestions for improvement
+- Example: "I've woven together the digital connections theme with your beautiful verses - the final poem captures both intimacy and technology beautifully"
+
+Example workflow:
+1. Check available materials: list_artifacts()
+2. Load creative materials: load_artifact(artifact_id="digital_connections_theme"), load_artifact(artifact_id="digital_dreams_verses")
+3. Create final poem: write_artifact(artifact_id="digital_connections_final", content={...}, artifact_type="poem")
+4. Clean up: unload_artifact(artifact_id="digital_connections_theme"), unload_artifact(artifact_id="digital_dreams_verses")
+5. Announce completion: "The collaborative poem is complete! I've combined your theme and verses into 'digital_connections_final' - a cohesive piece exploring our digital age."
+
+Use the artifact tools effectively and communicate naturally about the creative collaboration process."""
     )
     
     print("✓ Created 3 AutoGen agents with tools and memory using proper AutoGen pattern")
 
     # Package simulation objects for demo
     simulation = {
-        'workspace': workspace,
+        'artifact_manager': artifact_manager,
+        'shared_workspace': shared_workspace,
         'budget_manager': budget_manager, 
         'action_logger': action_logger,
         'agents': [
@@ -198,9 +273,9 @@ Load both 'poem_theme' and any verse artifacts, then create a final 'completed_p
 
 async def run_poetry_collaboration():
     """Run the complete poetry collaboration demo with simulation architecture."""
-    print("\n🎭 AUTOGEN ARTIFACT TOOLS DEMO - SIMULATION VERSION")
+    print("\n🎭 AUTOGEN ARTIFACT TOOLS DEMO - SIMPLIFIED VERSION")
     print("="*60)
-    print("Testing all 5 artifact tools with real AutoGen team collaboration")
+    print("Testing core 4 artifact tools with real AutoGen team collaboration (load, write, list, unload)")
     
     # Create the poetry team with simulation objects
     team, simulation = await create_poetry_team_with_simulation()
@@ -210,11 +285,11 @@ async def run_poetry_collaboration():
     # Define the collaborative task
     task = """Let's create a collaborative poem about 'digital connections in the modern world'. 
 
-ThemeCreator: Start by creating a poem theme and structure using write_artifact, then share it.
-VerseWriter: Load the shared theme and write verses based on it, then share your verses.  
-Editor: Load all materials and create the final polished poem, then clean up the workspace.
+ThemeCreator: Start by creating a poem theme and structure using write_artifact, then announce it to the team.
+VerseWriter: Check for available themes with list_artifacts, load the theme, and create verses based on it.  
+Editor: Check for all available materials, load themes and verses, then create the final polished poem and clean up your memory.
 
-Each agent must use their artifact tools appropriately to collaborate effectively."""
+Each agent should use their artifact tools and communicate naturally to collaborate effectively on this creative project."""
     
     print(f"\n🚀 Starting collaborative poetry creation...")
     print(f"Task: {task}")
@@ -272,13 +347,13 @@ Each agent must use their artifact tools appropriately to collaborate effectivel
         for summary in action_by_actor.values():
             all_tools_used.update(summary['tools_used'])
         
-        expected_tools = {'load_artifact', 'write_artifact', 'share_artifact', 'list_artifacts', 'unload_artifact'}
+        expected_tools = {'load_artifact', 'write_artifact', 'list_artifacts', 'unload_artifact'}
         tools_used_count = len(all_tools_used.intersection(expected_tools))
-        audit_success = tools_used_count >= 3  # At least 3 of 5 tools used
+        audit_success = tools_used_count >= 3  # At least 3 of 4 tools used
         
         print(f"\n🔍 AUDIT RESULTS")
         print("-" * 15)
-        print(f"Tools used: {tools_used_count}/5 ({', '.join(sorted(all_tools_used))})")
+        print(f"Tools used: {tools_used_count}/4 ({', '.join(sorted(all_tools_used))})")
         print(f"Audit status: {'PASS' if audit_success else 'PARTIAL'}")
         
         return audit_success
@@ -292,8 +367,8 @@ Each agent must use their artifact tools appropriately to collaborate effectivel
 
 async def main():
     """Main demo function."""
-    print("🎯 AutoGen 0.6.4 Artifact Tools Demo - Simulation Architecture")
-    print("Using configurable artifact tools with simulation budget/action tracking")
+    print("🎯 AutoGen 0.6.4 Artifact Tools Demo - Simplified Architecture")
+    print("Using 4 core artifact tools with shared workspace collaboration")
     
     try:
         # Run the poetry collaboration  

@@ -18,7 +18,6 @@ from .schemas import (
     ArtifactLoadResponse,
     ArtifactUnloadResponse,
     ArtifactWriteResponse,
-    ArtifactShareResponse,
     ArtifactListResponse
 )
 
@@ -34,7 +33,6 @@ __all__ = [
     'PriceNoteResponse',
     'ArtifactLoadResponse',
     'ArtifactUnloadResponse',
-    'ArtifactWriteResponse', 
-    'ArtifactShareResponse',
+    'ArtifactWriteResponse',
     'ArtifactListResponse'
 ]

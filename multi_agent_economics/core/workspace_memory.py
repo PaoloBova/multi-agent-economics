@@ -73,15 +73,25 @@ class WorkspaceMemory:
         listing = []
         injected_payloads = []
         
-        for artifact_id, current_version in live_artifacts.items():
+        for artifact_id, artifact_info in live_artifacts.items():
+            current_version = artifact_info["version"]
+            bucket = artifact_info["bucket"]
+            
             # Get or create metadata for this artifact
             artifact_meta = self.meta.setdefault(artifact_id, {
                 "last_seen": -1,
                 "loaded": False
             })
             
-            # Check if artifact is new BEFORE potentially loading it
-            is_new = current_version > artifact_meta["last_seen"]
+            # Enhanced new artifact detection:
+            # 1. Never seen before (first time visibility)
+            # 2. Version newer than last seen (updated artifact)
+            # 3. Recently shared (in shared bucket and never seen by this agent)
+            is_new = (
+                artifact_meta["last_seen"] == -1 or  # Never seen
+                current_version > artifact_meta["last_seen"] or  # Updated
+                (bucket == "shared" and artifact_meta["last_seen"] == -1)  # Newly shared
+            )
             
             # Check if artifact is loaded and needs injection
             if artifact_meta["loaded"]:
@@ -107,19 +117,26 @@ class WorkspaceMemory:
         
         return context_additions
     
-    def _get_workspace_listing(self) -> Dict[str, int]:
-        """Get current artifacts and their versions from workspace."""
+    def _get_workspace_listing(self) -> Dict[str, Dict[str, Any]]:
+        """Get current artifacts and their versions/bucket info from workspace."""
         artifact_listing = {}
         
-        # List all artifacts from all accessible buckets
-        artifact_ids = self.workspace.list_artifacts(bucket="all")
+        # Check each bucket to track where artifacts are located
+        buckets = ["private", "shared", "org"]
         
-        for artifact_id in artifact_ids:
-            artifact = self.workspace.get_artifact(artifact_id)
-            if artifact:
-                # Use created_at timestamp as version (convert to int)
-                version = int(artifact.created_at.timestamp())
-                artifact_listing[artifact_id] = version
+        for bucket in buckets:
+            artifact_ids = self.workspace.list_artifacts(bucket=bucket)
+            
+            for artifact_id in artifact_ids:
+                if artifact_id not in artifact_listing:  # First occurrence wins
+                    artifact = self.workspace.get_artifact(artifact_id)
+                    if artifact:
+                        # Use created_at timestamp as version (convert to int)
+                        version = int(artifact.created_at.timestamp())
+                        artifact_listing[artifact_id] = {
+                            "version": version,
+                            "bucket": bucket
+                        }
         
         return artifact_listing
     
@@ -228,7 +245,7 @@ class WorkspaceMemory:
         
         # Create system message and add to model context
         system_message = SystemMessage(content=system_message_content)
-        model_context.add_message(system_message)
+        await model_context.add_message(system_message)
         # Return result indicating what was added
         memories = [MemoryContent(content=artifact_context, mime_type=MemoryMimeType.TEXT)]
         memory_query_result = MemoryQueryResult(results=memories)

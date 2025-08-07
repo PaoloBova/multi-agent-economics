@@ -15,7 +15,6 @@ from .artifacts import (
     load_artifact_impl,
     unload_artifact_impl,
     write_artifact_impl,
-    share_artifact_impl,
     list_artifacts_impl
 )
 
@@ -29,6 +28,5 @@ __all__ = [
     'load_artifact_impl',
     'unload_artifact_impl',
     'write_artifact_impl',
-    'share_artifact_impl',
     'list_artifacts_impl'
 ]

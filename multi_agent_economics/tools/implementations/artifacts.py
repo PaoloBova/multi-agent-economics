@@ -5,13 +5,16 @@ These functions handle ALL parameter unpacking from agent context and return
 Pydantic response models directly. Wrappers only handle budget/logging.
 """
 
+import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from ..schemas import (
     ArtifactLoadResponse, ArtifactUnloadResponse, ArtifactWriteResponse,
-    ArtifactShareResponse, ArtifactListResponse
+    ArtifactListResponse
 )
 from ...core.artifacts import Artifact
+
+logger = logging.getLogger('artifacts.tools')
 
 
 def load_artifact_impl(workspace_memory, artifact_id: str) -> ArtifactLoadResponse:
@@ -33,10 +36,13 @@ def load_artifact_impl(workspace_memory, artifact_id: str) -> ArtifactLoadRespon
         )
     
     try:
+        logger.debug(f"Loading artifact '{artifact_id}' for workspace memory {workspace_memory.name}")
+        
         # Attempt to load the artifact
         success = workspace_memory.load_artifact(artifact_id)
         
         if success:
+            logger.info(f"Successfully loaded artifact '{artifact_id}' for {workspace_memory.name}")
             return ArtifactLoadResponse(
                 status="loaded",
                 artifact_id=artifact_id,
@@ -44,6 +50,7 @@ def load_artifact_impl(workspace_memory, artifact_id: str) -> ArtifactLoadRespon
                 version=int(datetime.now().timestamp())
             )
         else:
+            logger.warning(f"Failed to load artifact '{artifact_id}' for {workspace_memory.name} - artifact may not exist")
             return ArtifactLoadResponse(
                 status="error",
                 artifact_id=artifact_id,
@@ -57,19 +64,17 @@ def load_artifact_impl(workspace_memory, artifact_id: str) -> ArtifactLoadRespon
         )
 
 
-def unload_artifact_impl(agent, artifact_id: str) -> ArtifactUnloadResponse:
+def unload_artifact_impl(workspace_memory, artifact_id: str) -> ArtifactUnloadResponse:
     """
-    Unload artifact with complete agent context unpacking.
+    Unload artifact using workspace memory.
     
     Args:
-        agent: Complete agent object with memory[0] as WorkspaceMemory, budget_manager, etc.
+        workspace_memory: WorkspaceMemory instance for artifact management
         artifact_id: ID of artifact to unload
     
     Returns:
         ArtifactUnloadResponse: Complete Pydantic response
     """
-    # Unpack agent context
-    workspace_memory = agent.memory[0] if agent.memory else None
     
     if not workspace_memory:
         return ArtifactUnloadResponse(
@@ -133,6 +138,8 @@ def write_artifact_impl(
     workspace = workspace_memory.workspace
     
     try:
+        logger.debug(f"Writing artifact '{artifact_id}' (type: {artifact_type}) for agent '{agent_name}' to workspace {workspace.workspace_id}")
+        
         # Create real artifact and store it in workspace
         artifact = Artifact(
             id=artifact_id,
@@ -147,9 +154,11 @@ def write_artifact_impl(
         # Store in workspace if available
         if workspace:
             path = workspace.store_artifact(artifact, "private")
+            logger.info(f"Stored artifact '{artifact_id}' in workspace {workspace.workspace_id} at {path}")
         else:
             # Fallback path if no workspace
             path = f"/workspace/{agent_name}/{artifact_id}.json"
+            logger.warning(f"No workspace available, using fallback path: {path}")
         
         # Use timestamp as version
         version = int(artifact.created_at.timestamp())
@@ -157,6 +166,7 @@ def write_artifact_impl(
         # Mark as seen in memory
         if hasattr(workspace_memory, 'mark_artifact_seen'):
             workspace_memory.mark_artifact_seen(artifact_id, version)
+            logger.debug(f"Marked artifact '{artifact_id}' as seen (version {version}) in workspace memory")
         
         return ArtifactWriteResponse(
             status="written",
@@ -172,129 +182,6 @@ def write_artifact_impl(
             status="error",
             artifact_id=artifact_id,
             message=f"Failed to write artifact: {str(e)}"
-        )
-
-
-def share_artifact_impl(
-    workspace_memory,
-    artifact_id: str,
-    target_agent: str
-) -> ArtifactShareResponse:
-    """
-    Share artifact using workspace memory.
-    
-    Args:
-        workspace_memory: WorkspaceMemory instance for artifact management
-        artifact_id: ID of artifact to share
-        target_agent: Agent ID to share with (format: "org.role")
-    
-    Returns:
-        ArtifactShareResponse: Complete Pydantic response
-    """
-    if not workspace_memory:
-        return ArtifactShareResponse(
-            status="error",
-            artifact_id=artifact_id,
-            message="No workspace memory available"
-        )
-    
-    # Get workspace from workspace_memory  
-    workspace = workspace_memory.workspace
-    
-    try:
-        # Extract target organization from agent ID
-        target_organization = target_agent.split('.')[0] if '.' in target_agent else target_agent
-        
-        # Check if the artifact exists in the source workspace
-        if not workspace:
-            return ArtifactShareResponse(
-                status="error",
-                artifact_id=artifact_id,
-                message="No workspace available"
-            )
-        
-        source_artifact = workspace.get_artifact(artifact_id)
-        if not source_artifact:
-            return ArtifactShareResponse(
-                status="error",
-                artifact_id=artifact_id,
-                message=f"Artifact {artifact_id} not found in workspace"
-            )
-        
-        # Check artifact visibility permissions
-        agent_name = getattr(agent, 'name', 'unknown_agent')
-        source_workspace_id = workspace.workspace_id
-        
-        # Check if the target organization is allowed in the artifact's visibility
-        # OR if the current workspace "owns" the artifact (has it in their workspace)
-        allowed_targets = source_artifact.visibility
-        target_allowed = False
-        
-        # Check explicit visibility rules
-        for visibility_rule in allowed_targets:
-            if visibility_rule == f"{target_organization}.*" or visibility_rule == target_agent:
-                target_allowed = True
-                break
-        
-        # Also allow sharing if the workspace has the artifact (they can re-share)
-        # This enables chain sharing - if you have an artifact, you can share it onward
-        if not target_allowed:
-            # If workspace has the artifact, they can share it (chain sharing)
-            workspace_has_artifact = workspace.get_artifact(artifact_id) is not None
-            if workspace_has_artifact:
-                target_allowed = True
-        
-        if not target_allowed:
-            return ArtifactShareResponse(
-                status="error",
-                artifact_id=artifact_id,
-                message=f"Artifact {artifact_id} cannot be shared with {target_organization} - visibility restrictions"
-            )
-        
-        # Get artifact manager from workspace
-        artifact_manager = workspace.artifact_manager
-        if not artifact_manager:
-            return ArtifactShareResponse(
-                status="error",
-                artifact_id=artifact_id,
-                message="No artifact manager available for cross-workspace sharing"
-            )
-        
-        target_workspace = artifact_manager.get_workspace(target_organization)
-        if not target_workspace:
-            return ArtifactShareResponse(
-                status="error",
-                artifact_id=artifact_id,
-                message=f"Target workspace {target_organization} not found"
-            )
-        
-        # Perform the actual sharing
-        agent_name = getattr(agent, 'name', 'unknown_agent')
-        success = workspace.share_artifact(
-            artifact_id, 
-            target_workspace, 
-            shared_by=agent_name,
-            sharing_reason="agent_collaboration"
-        )
-        if success:
-            return ArtifactShareResponse(
-                status="shared",
-                artifact_id=artifact_id,
-                target=target_organization,
-                message=f"Artifact {artifact_id} shared with {target_organization}"
-            )
-        else:
-            return ArtifactShareResponse(
-                status="error",
-                artifact_id=artifact_id,
-                message=f"Failed to share artifact {artifact_id}"
-            )
-        
-    except Exception as e:
-        return ArtifactShareResponse(
-            status="error",
-            artifact_id=artifact_id,
-            message=f"Error sharing artifact: {str(e)}"
         )
 
 
@@ -344,16 +231,20 @@ def list_artifacts_impl(workspace_memory) -> ArtifactListResponse:
                 if hasattr(workspace_memory, 'get_artifact_status'):
                     loaded_status[aid] = workspace_memory.get_artifact_status(aid)
                 else:
-                    loaded_status[aid] = {"loaded": True}
-            except Exception:
-                loaded_status[aid] = {"status": "unknown"}
+                    loaded_status[aid] = {"loaded": True, "note": "get_artifact_status method not available"}
+            except Exception as artifact_status_error:
+                loaded_status[aid] = {"status": "unknown", "error": str(artifact_status_error)}
         
         # Count total artifacts from the actual workspace
-        workspace = getattr(agent, 'workspace', None)
-        if workspace:
-            total_artifacts = len(workspace.list_artifacts())
+        workspace = getattr(workspace_memory, 'workspace', None)
+        if workspace and hasattr(workspace, 'list_artifacts'):
+            try:
+                total_artifacts = len(workspace.list_artifacts())
+            except Exception as list_error:
+                total_artifacts = 0
+                workspace_line += f" (list error: {str(list_error)})"
         else:
-            total_artifacts = max(len(loaded_artifacts), 2)  # Fallback for mock
+            total_artifacts = max(len(loaded_artifacts), 0)  # Fallback
         
         return ArtifactListResponse(
             status="success",

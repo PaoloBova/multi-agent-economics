@@ -102,60 +102,12 @@ class Workspace:
         
         return artifact_ids
     
-    def share_artifact(self, artifact_id: str, target_workspace: "Workspace", 
-                      shared_by: str = "unknown", sharing_reason: str = "collaboration") -> bool:
-        """
-        Share an artifact with another workspace with enhanced tracking.
-        
-        Args:
-            artifact_id: ID of artifact to share
-            target_workspace: Target workspace to share with
-            shared_by: Agent/user who initiated the sharing
-            sharing_reason: Reason for sharing (e.g., "collaboration", "review", "handoff")
-        
-        Returns:
-            bool: True if sharing was successful
-        """
-        artifact = self.get_artifact(artifact_id)
-        if not artifact:
-            return False
-        
-        # Add sharing metadata to track the sharing transaction
-        sharing_metadata = {
-            "shared_from": self.workspace_id,
-            "shared_to": target_workspace.workspace_id,
-            "shared_by": shared_by,
-            "shared_at": datetime.now().isoformat(),
-            "sharing_reason": sharing_reason,
-            "original_created_by": artifact.created_by
-        }
-        
-        # Create a copy of the artifact with sharing metadata
-        existing_sharing_history = (artifact.metadata or {}).get("sharing_history", [])
-        new_sharing_history = existing_sharing_history + [sharing_metadata]
-        
-        # Expand visibility to include target organization (for chain sharing)
-        expanded_visibility = artifact.visibility.copy()
-        target_org_pattern = f"{target_workspace.workspace_id}.*"
-        if target_org_pattern not in expanded_visibility:
-            expanded_visibility.append(target_org_pattern)
-        
-        shared_artifact = Artifact(
-            id=artifact.id,
-            type=artifact.type,
-            payload=artifact.payload.copy(),  # Deep copy of payload
-            visibility=expanded_visibility,  # Use expanded visibility
-            created_at=artifact.created_at,
-            created_by=artifact.created_by,
-            metadata={
-                **(artifact.metadata or {}),
-                "sharing_history": new_sharing_history
-            }
-        )
-        
-        # Store in target's shared bucket
-        target_workspace.store_artifact(shared_artifact, bucket="shared")
-        return True
+    # NOTE: Cross-workspace sharing disabled for simplified single-workspace demo
+    # def share_artifact(self, artifact_id: str, target_workspace: "Workspace", 
+    #                   shared_by: str = "unknown", sharing_reason: str = "collaboration") -> bool:
+    #     """Share an artifact with another workspace with enhanced tracking."""
+    #     # Complex sharing logic removed for single-workspace approach
+    #     pass
 
 
 class ArtifactManager:
@@ -177,29 +129,14 @@ class ArtifactManager:
         """Get an existing workspace."""
         return self.workspaces.get(workspace_id)
     
-    def share_artifact(self, artifact_id: str, from_workspace: str, 
-                      to_workspace: str) -> bool:
-        """Share an artifact between workspaces."""
-        source = self.get_workspace(from_workspace)
-        target = self.get_workspace(to_workspace)
-        
-        if not source or not target:
-            return False
-        
-        return source.share_artifact(artifact_id, target)
-    
-    def check_access(self, agent_id: str, artifact_id: str) -> bool:
-        """Check if an agent has access to a specific artifact."""
-        # Extract workspace from agent_id (e.g., "Seller.Trader" -> "Seller")
-        workspace_id = agent_id.split('.')[0]
-        workspace = self.get_workspace(workspace_id)
-        
-        if not workspace:
-            return False
-        
-        artifact = workspace.get_artifact(artifact_id)
-        if not artifact:
-            return False
-        
-        # Check visibility permissions
-        return agent_id in artifact.visibility or f"{workspace_id}.*" in artifact.visibility
+    # NOTE: Cross-workspace sharing disabled for simplified single-workspace demo
+    # def share_artifact(self, artifact_id: str, from_workspace: str, 
+    #                   to_workspace: str) -> bool:
+    #     """Share an artifact between workspaces."""
+    #     # Complex cross-workspace sharing logic removed
+    #     pass
+    # 
+    # def check_access(self, agent_id: str, artifact_id: str) -> bool:
+    #     """Check if an agent has access to a specific artifact."""
+    #     # Complex visibility permission logic removed for single-workspace approach
+    #     pass
