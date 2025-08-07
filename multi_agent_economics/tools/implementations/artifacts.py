@@ -19,20 +19,20 @@ def load_artifact_impl(agent, artifact_id: str) -> ArtifactLoadResponse:
     Load artifact with complete agent context unpacking.
     
     Args:
-        agent: Complete agent object with workspace_memory, budget_manager, etc.
+        agent: Complete agent object with memory[0] as WorkspaceMemory, budget_manager, etc.
         artifact_id: ID of artifact to load
     
     Returns:
         ArtifactLoadResponse: Complete Pydantic response
     """
     # Unpack agent context
-    workspace_memory = getattr(agent, 'workspace_memory', None)
+    workspace_memory = agent.memory[0] if agent.memory else None
     
     if not workspace_memory:
         return ArtifactLoadResponse(
             status="error",
             artifact_id=artifact_id,
-            message="No workspace memory available"
+            message="No workspace memory available (agent.memory[0] not found)"
         )
     
     try:
@@ -65,20 +65,20 @@ def unload_artifact_impl(agent, artifact_id: str) -> ArtifactUnloadResponse:
     Unload artifact with complete agent context unpacking.
     
     Args:
-        agent: Complete agent object with workspace_memory, budget_manager, etc.
+        agent: Complete agent object with memory[0] as WorkspaceMemory, budget_manager, etc.
         artifact_id: ID of artifact to unload
     
     Returns:
         ArtifactUnloadResponse: Complete Pydantic response
     """
     # Unpack agent context
-    workspace_memory = getattr(agent, 'workspace_memory', None)
+    workspace_memory = agent.memory[0] if agent.memory else None
     
     if not workspace_memory:
         return ArtifactUnloadResponse(
             status="error",
             artifact_id=artifact_id,
-            message="No workspace memory available"
+            message="No workspace memory available (agent.memory[0] not found)"
         )
     
     try:
@@ -124,7 +124,7 @@ def write_artifact_impl(
         ArtifactWriteResponse: Complete Pydantic response
     """
     # Unpack agent context
-    workspace_memory = getattr(agent, 'workspace_memory', None)
+    workspace_memory = agent.memory[0] if agent.memory else None
     workspace = getattr(agent, 'workspace', None)
     agent_name = getattr(agent, 'name', 'unknown_agent')
     
@@ -132,7 +132,7 @@ def write_artifact_impl(
         return ArtifactWriteResponse(
             status="error",
             artifact_id=artifact_id,
-            message="No workspace memory available"
+            message="No workspace memory available (agent.memory[0] not found)"
         )
     
     try:
@@ -195,14 +195,14 @@ def share_artifact_impl(
         ArtifactShareResponse: Complete Pydantic response
     """
     # Unpack agent context
-    workspace_memory = getattr(agent, 'workspace_memory', None)
+    workspace_memory = agent.memory[0] if agent.memory else None
     workspace = getattr(agent, 'workspace', None)
     
     if not workspace_memory:
         return ArtifactShareResponse(
             status="error",
             artifact_id=artifact_id,
-            message="No workspace memory available"
+            message="No workspace memory available (agent.memory[0] not found)"
         )
     
     try:
@@ -313,7 +313,7 @@ def list_artifacts_impl(agent) -> ArtifactListResponse:
         ArtifactListResponse: Complete Pydantic response
     """
     # Unpack agent context
-    workspace_memory = getattr(agent, 'workspace_memory', None)
+    workspace_memory = agent.memory[0] if agent.memory else None
     
     if not workspace_memory:
         return ArtifactListResponse(
@@ -321,7 +321,7 @@ def list_artifacts_impl(agent) -> ArtifactListResponse:
             workspace_listing="[workspace] No workspace memory available",
             loaded_artifacts=[],
             loaded_status={},
-            message="No workspace memory available"
+            message="No workspace memory available (agent.memory[0] not found)"
         )
     
     try:

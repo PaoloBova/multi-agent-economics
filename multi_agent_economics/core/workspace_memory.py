@@ -3,10 +3,16 @@ WorkspaceMemory implementation for AutoGen agents with artifact management.
 
 This module provides a memory system that integrates with our artifact workspace,
 allowing agents to load/unload artifacts on-demand without polluting chat history.
+Implements AutoGen Memory protocol for seamless integration.
 """
 
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Union
 from datetime import datetime, timedelta
+
+# AutoGen memory imports - required
+from autogen_core.memory import MemoryContent, MemoryMimeType, MemoryQueryResult, UpdateContextResult
+from autogen_core.models import ChatCompletionContext, SystemMessage
+from autogen_core.base import CancellationToken
 
 from .artifacts import Workspace, Artifact
 
@@ -41,11 +47,15 @@ class WorkspaceMemory:
         
         # Payload cache: {artifact_id: (payload_text, timestamp)}
         self.payload_cache: Dict[str, Tuple[str, datetime]] = {}
+        
+        # AutoGen Memory protocol: store memory entries
+        self.memory_entries: List[MemoryContent] = []
     
-    def clear(self) -> None:
+    async def clear(self) -> None:
         """Clear all memory state."""
         self.meta.clear()
         self.payload_cache.clear()
+        self.memory_entries.clear()
     
     def build_context_additions(self) -> List[str]:
         """
@@ -185,3 +195,61 @@ class WorkspaceMemory:
             "last_seen": meta.get("last_seen", -1),
             "cached": artifact_id in self.payload_cache
         }
+    
+    # AutoGen Memory Protocol Implementation (matching ChromaDBVectorMemory)
+    
+    async def add(self, content: MemoryContent, cancellation_token: Optional[CancellationToken] = None) -> None:
+        """Add new entries to the memory store."""
+        # Note: This is a no-op for our workspace memory
+        # since we manage memory through artifact loading/unloading
+        pass
+    
+    async def query(self, query: Union[str, MemoryContent], 
+                   cancellation_token: Optional[CancellationToken] = None, 
+                   **kwargs: Any) -> MemoryQueryResult:
+        """Retrieve all information from the memory store."""    
+        # Note: This is a no-op for our workspace memory
+        # since we manage memory through artifact loading/unloading
+        pass
+    
+    async def update_context(self, model_context: ChatCompletionContext) -> UpdateContextResult:
+        """Update the provided model context using relevant memory content."""
+        # Build context additions from artifact system (this is the key integration!)
+        context_additions = self.build_context_additions()
+        
+        if not context_additions:
+            # No loaded artifacts to inject
+            return UpdateContextResult(memories=MemoryQueryResult(results=[]))
+        
+        # Format artifact context as system message 
+        artifact_context = "\n".join(context_additions)
+        system_message_content = f"Loaded artifacts from workspace:\n{artifact_context}"
+        
+        # Create system message and add to model context
+        system_message = SystemMessage(content=system_message_content)
+        model_context.add_message(system_message)
+        # Return result indicating what was added
+        memories = [MemoryContent(content=artifact_context, mime_type=MemoryMimeType.TEXT)]
+        memory_query_result = MemoryQueryResult(results=memories)
+        return UpdateContextResult(memories=memory_query_result)
+    
+    async def close(self) -> None:
+        """Clean up any resources used by the memory store."""
+        # Clear caches and close workspace connections if needed
+        self.payload_cache.clear()
+        # Workspace cleanup would go here if needed
+    
+    def _get_workspace_context(self) -> str:
+        """Get current workspace state as a string for memory queries."""
+        live_artifacts = self._get_workspace_listing()
+        
+        if not live_artifacts:
+            return "Workspace is empty."
+        
+        artifact_list = []
+        for artifact_id, version in live_artifacts.items():
+            meta = self.meta.get(artifact_id, {})
+            status = "loaded" if meta.get("loaded", False) else "available"
+            artifact_list.append(f"- {artifact_id} (v{version}, {status})")
+        
+        return f"Workspace contains {len(live_artifacts)} artifacts:\n" + "\n".join(artifact_list)
