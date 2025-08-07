@@ -166,6 +166,13 @@ COLLABORATION APPROACH:
 - Use natural language to guide the creative process
 - Ask questions and provide feedback on others' work
 
+ARTIFACT OWNERSHIP & COLLABORATION:
+- Consider artifact ownership and modification rights as part of your collaboration
+- Communicate ownership expectations when creating artifacts
+- Example: "I'm creating 'digital_connections_theme' as a shared foundation - feel free to build on it"
+- If creating derivative works, acknowledge the original and establish your own conventions
+- Specify if artifacts are meant for shared use, iteration, or as final versions
+
 Example workflow:
 1. Create theme: write_artifact(artifact_id="digital_connections_theme", content={...}, artifact_type="theme")
 2. Announce it: "I've just created a 'digital_connections_theme' artifact exploring how technology connects us - VerseWriter, take a look and see what poetry it inspires!"
@@ -199,6 +206,13 @@ COLLABORATION APPROACH:
 - Respond to teammates when they mention creating or discussing artifacts
 - Feel free to ask questions or make suggestions about the creative direction
 - Example: "I saw your digital connections theme - I'll create some verses exploring virtual relationships and human connection"
+
+ARTIFACT OWNERSHIP & COLLABORATION:
+- Consider artifact ownership and modification rights as part of your collaboration
+- Communicate ownership expectations when creating artifacts
+- Example: "I'm creating 'digital_dreams_verses' based on your theme - this is my interpretation for Editor to use"
+- Respect existing artifacts and establish clear conventions for building on others' work
+- Specify if your verses are meant for direct use, further development, or inspiration
 
 Example workflow:
 1. Check for available themes: list_artifacts()
@@ -235,6 +249,13 @@ COLLABORATION APPROACH:
 - Acknowledge the creative contributions from your teammates
 - Provide editorial feedback and suggestions for improvement
 - Example: "I've woven together the digital connections theme with your beautiful verses - the final poem captures both intimacy and technology beautifully"
+
+ARTIFACT OWNERSHIP & COLLABORATION:
+- Consider artifact ownership and modification rights as part of your collaboration
+- Communicate ownership expectations when creating final artifacts
+- Example: "I'm creating 'digital_connections_final' as the definitive version combining everyone's contributions"
+- Acknowledge source materials and establish conventions for final vs. working versions
+- Specify if your final artifacts are open for further iteration or represent completion
 
 Example workflow:
 1. Check available materials: list_artifacts()

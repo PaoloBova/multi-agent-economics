@@ -114,6 +114,8 @@ def create_artifact_tools(context) -> List[FunctionTool]:
         artifact_id: Annotated[str, "Unique identifier for the new or updated artifact. Use descriptive names like 'poem_sunset', 'market_analysis', 'financial_report'"],
         content: Annotated[Dict[str, Any], """REQUIRED: The actual content to write to the artifact as a dictionary. 
         
+        IMPORTANT: Must be a dictionary object, NOT a string. The tool will fail with a validation error if you pass a string.
+        
         Examples:
         - For poems: {'title': 'Sunset Dreams', 'text': 'Golden rays dance...', 'theme': 'nature', 'style': 'free verse'}
         - For analysis: {'title': 'Market Analysis', 'summary': 'Key findings...', 'data': [1,2,3], 'conclusion': 'The market shows...'}

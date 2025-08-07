@@ -231,7 +231,12 @@ class WorkspaceMemory:
         return MemoryQueryResult(results=[])
     
     async def update_context(self, model_context: ChatCompletionContext) -> UpdateContextResult:
-        """Update the provided model context using relevant memory content."""
+        """Update the provided model context using relevant memory content.
+        
+        Note: AutoGen calls this method before every agent turn, which generates 
+        MemoryQueryEvent logs. This is normal expected behavior that shows the 
+        memory system is properly integrated and checking for artifact updates.
+        """
         # Build context additions from artifact system (this is the key integration!)
         context_additions = self.build_context_additions()
         
