@@ -153,6 +153,9 @@ class AkerlofSeller:
             
         Returns:
             Tuple of (effort_level, (forecast_id, forecast_data))
+        
+        Note:
+            Assumes only one sector in the model for simplicity.
         """
         # Calculate expected profits for each effort level
         effort_profits = {}
