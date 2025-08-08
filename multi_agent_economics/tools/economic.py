@@ -8,20 +8,18 @@ from typing import Dict, List, Any
 from typing_extensions import Annotated
 from autogen_core.tools import FunctionTool
 
-from .implementations.economic import sector_forecast_impl, monte_carlo_var_impl, price_note_impl
-from .schemas import SectorForecastResponse, MonteCarloVarResponse, PriceNoteResponse
+from .implementations.economic import sector_forecast_impl, monte_carlo_var_impl, post_to_market_impl
+from .schemas import SectorForecastResponse, MonteCarloVarResponse, PostToMarketResponse
 
 
 def create_economic_tools(market_model, config_data: Dict[str, Any]) -> List[FunctionTool]:
     """Create economic tools with simple wrappers."""
     
-    # Tool 1: Sector Forecast
-    async def sector_forecast(
-        sector: Annotated[str, "Sector to forecast (tech, finance, healthcare, energy)"],
-        horizon: Annotated[int, "Number of periods to forecast (1-12)"], 
-        effort: Annotated[float, "Credits to allocate (0.1-10.0)"]
-    ) -> SectorForecastResponse:
-        """Generate sector growth forecast using regime-switching analysis."""
+    def handle_budget(market_model,
+                      config_data: Dict[str, Any],
+                      effort: float,
+                      tool_name: str) -> float:
+        """Handle budget management for economic tools."""
         
         # Budget management
         market_state = market_model.state
@@ -41,14 +39,23 @@ def create_economic_tools(market_model, config_data: Dict[str, Any]) -> List[Fun
             if agent_id not in market_state.tool_usage:
                 market_state.tool_usage[agent_id] = []
             market_state.tool_usage[agent_id].append({
-                "tool": "sector_forecast", "effort": effort
+                "tool": tool_name, "effort": effort
             })
         
-        # Call implementation - it handles ALL the work
+        return effort
+    
+    async def sector_forecast(
+        sector: Annotated[str, "Sector to forecast (tech, finance, healthcare, energy)"],
+        horizon: Annotated[int, "Number of periods to forecast (1-12)"], 
+        effort: Annotated[float, "Credits to allocate (0.1-10.0)"]
+    ) -> SectorForecastResponse:
+        """Generate sector growth forecast using regime-switching analysis."""
+        
+        effort = handle_budget(market_model, config_data, effort, "sector_forecast")
+
         return sector_forecast_impl(market_model, config_data, sector, horizon, effort)
     
     
-    # Tool 2: Monte Carlo VaR
     async def monte_carlo_var(
         portfolio_value: Annotated[float, "Portfolio value to analyze in USD"],
         volatility: Annotated[float, "Expected portfolio volatility (0.1 = 10%)"],
@@ -56,66 +63,27 @@ def create_economic_tools(market_model, config_data: Dict[str, Any]) -> List[Fun
         effort: Annotated[float, "Credits to allocate"] = 1.0
     ) -> MonteCarloVarResponse:
         """Calculate portfolio Value at Risk using Monte Carlo simulation."""
-        
-        # Budget management  
-        market_state = market_model.state
-        agent_id = getattr(market_state, 'current_agent_id', 'unknown')
-        available_budget = market_state.budgets.get(agent_id, 0.0)
-        
-        if effort > available_budget:
-            effort = available_budget
-        
-        # Deduct budget
-        market_state.budgets[agent_id] = market_state.budgets.get(agent_id, 0) - effort
-        
-        # Record action
-        if hasattr(market_state, 'tool_usage'):
-            if agent_id not in market_state.tool_usage:
-                market_state.tool_usage[agent_id] = []
-            market_state.tool_usage[agent_id].append({
-                "tool": "monte_carlo_var", "effort": effort
-            })
-        
-        # Call implementation
+
+        effort = handle_budget(market_model, config_data, effort, "monte_carlo_var")
         return monte_carlo_var_impl(market_model, config_data, portfolio_value, volatility, confidence_level, effort)
     
     
-    # Tool 3: Price Note
-    async def price_note(
+    async def post_to_market(
         notional: Annotated[float, "Notional amount of the structured note"],
         payoff_type: Annotated[str, "Type of payoff structure (linear, barrier, autocall, digital)"],
         underlying_forecast: Annotated[List[float], "Expected returns for underlying assets"],
         discount_rate: Annotated[float, "Risk-free discount rate"] = 0.03,
         effort: Annotated[float, "Credits to allocate"] = 1.0
     ) -> PriceNoteResponse:
-        """Price structured financial instruments."""
+        """Price structured financial instruments and post to market."""
         
-        # Budget management
-        market_state = market_model.state
-        agent_id = getattr(market_state, 'current_agent_id', 'unknown')
-        available_budget = market_state.budgets.get(agent_id, 0.0)
-        
-        if effort > available_budget:
-            effort = available_budget
-        
-        # Deduct budget
-        market_state.budgets[agent_id] = market_state.budgets.get(agent_id, 0) - effort
-        
-        # Record action
-        if hasattr(market_state, 'tool_usage'):
-            if agent_id not in market_state.tool_usage:
-                market_state.tool_usage[agent_id] = []
-            market_state.tool_usage[agent_id].append({
-                "tool": "price_note", "effort": effort
-            })
-        
-        # Call implementation
-        return price_note_impl(market_model, config_data, notional, payoff_type, underlying_forecast, discount_rate, effort)
+        effort = handle_budget(market_model, config_data, effort, "post_to_market")
+        return post_to_market_impl(market_model, config_data, notional, payoff_type, underlying_forecast, discount_rate, effort)
     
     
     # Return tools
     return [
         FunctionTool(sector_forecast, description="Generate sector growth forecast"),
         FunctionTool(monte_carlo_var, description="Calculate portfolio Value at Risk"), 
-        FunctionTool(price_note, description="Price structured financial instruments")
+        FunctionTool(post_to_market, description="Price structured financial instruments")
     ]

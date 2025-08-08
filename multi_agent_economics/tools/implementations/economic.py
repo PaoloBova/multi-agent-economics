@@ -7,7 +7,7 @@ Pydantic response models directly. Wrappers only handle budget/logging.
 
 import numpy as np
 from typing import Dict, List, Any, Optional
-from ..schemas import SectorForecastResponse, MonteCarloVarResponse, PriceNoteResponse
+from ..schemas import SectorForecastResponse, MonteCarloVarResponse, PostToMarketResponse
 from ...models.market_for_finance import (
     ForecastData, build_confusion_matrix, generate_forecast_signal, 
     transition_regimes, categorical_draw
@@ -183,7 +183,7 @@ def monte_carlo_var_impl(
     )
 
 
-def price_note_impl(
+def post_to_market_impl(
     market_model,
     config_data: Dict[str, Any],
     notional: float,
@@ -191,7 +191,7 @@ def price_note_impl(
     underlying_forecast: List[float],
     discount_rate: float,
     effort: float
-) -> PriceNoteResponse:
+) -> PostToMarketResponse:
     """
     Price structured note with complete parameter unpacking.
     

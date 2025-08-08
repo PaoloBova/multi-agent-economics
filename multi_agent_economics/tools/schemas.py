@@ -37,7 +37,7 @@ class MonteCarloVarResponse(BaseModel):
     warnings: List[str] = Field(default_factory=list, description="Any warnings or constraints applied")
 
 
-class PriceNoteResponse(BaseModel):
+class PostToMarketResponse(BaseModel):
     """Response model for structured note pricing tool."""
     notional: float = Field(..., description="Notional amount of the note", gt=0)
     payoff_type: str = Field(..., description="Type of payoff structure")
