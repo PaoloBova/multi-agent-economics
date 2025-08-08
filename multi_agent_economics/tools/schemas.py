@@ -53,6 +53,50 @@ class PostToMarketResponse(BaseModel):
     warnings: List[str] = Field(default_factory=list, description="Any warnings or constraints applied")
 
 
+# Market Research Tool Response Schemas
+
+class HistoricalPerformanceResponse(BaseModel):
+    """Response model for historical performance analysis tool."""
+    sector: str = Field(..., description="Sector that was analyzed")
+    performance_tiers: Dict[str, Dict[str, Any]] = Field(..., description="Performance tier analysis with revenue patterns")
+    revenue_patterns: Dict[str, List[float]] = Field(..., description="Revenue patterns by performance level")
+    analysis_quality: float = Field(..., description="Quality of the analysis performed", ge=0, le=1)
+    sample_size: int = Field(..., description="Number of trades analyzed", ge=0)
+    lookback_periods: int = Field(..., description="Number of periods analyzed", ge=0)
+    quality_tier: Literal["low", "medium", "high"] = Field(..., description="Quality tier based on effort")
+    effort_used: float = Field(..., description="Actual effort used after budget constraints", ge=0)
+    warnings: List[str] = Field(default_factory=list, description="Any warnings or data limitations")
+    data_quality: Optional[str] = Field(None, description="Assessment of underlying data quality")
+
+
+class BuyerPreferenceResponse(BaseModel):
+    """Response model for buyer preference analysis tool."""
+    sector: str = Field(..., description="Sector that was analyzed")
+    avg_preferences: List[float] = Field(..., description="Average buyer preferences for each attribute")
+    preference_distribution: Dict[str, Dict[str, float]] = Field(..., description="Distribution statistics for preferences")
+    sample_size: int = Field(..., description="Number of buyers analyzed", ge=0)
+    confidence_level: Optional[float] = Field(None, description="Statistical confidence level of results", ge=0, le=1)
+    preference_variance: List[float] = Field(default_factory=list, description="Variance in preferences across buyers")
+    quality_tier: Literal["low", "medium", "high"] = Field(..., description="Quality tier based on effort")
+    effort_used: float = Field(..., description="Actual effort used after budget constraints", ge=0)
+    warnings: List[str] = Field(default_factory=list, description="Any warnings or data limitations")
+    data_quality: Optional[str] = Field(None, description="Assessment of underlying data quality")
+
+
+class CompetitivePricingResponse(BaseModel):
+    """Response model for competitive pricing research tool."""
+    sector: str = Field(..., description="Sector that was analyzed")
+    price_statistics: Dict[str, float] = Field(..., description="Statistical summary of competitive prices")
+    competitive_landscape: Dict[str, Any] = Field(..., description="Analysis of competitive dynamics")
+    sample_size: int = Field(..., description="Number of competitive offers analyzed", ge=0)
+    lookback_periods: int = Field(..., description="Number of periods analyzed", ge=0)
+    price_ranges: Dict[str, float] = Field(default_factory=dict, description="Price ranges by competitive segment")
+    quality_tier: Literal["low", "medium", "high"] = Field(..., description="Quality tier based on effort")
+    effort_used: float = Field(..., description="Actual effort used after budget constraints", ge=0)
+    warnings: List[str] = Field(default_factory=list, description="Any warnings or data limitations")
+    data_quality: Optional[str] = Field(None, description="Assessment of underlying data quality")
+
+
 # Artifact Tool Response Schemas
 
 class ArtifactLoadResponse(BaseModel):

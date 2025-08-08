@@ -8,8 +8,14 @@ from typing import Dict, List, Any
 from typing_extensions import Annotated
 from autogen_core.tools import FunctionTool
 
-from .implementations.economic import sector_forecast_impl, monte_carlo_var_impl, post_to_market_impl
-from .schemas import SectorForecastResponse, MonteCarloVarResponse, PostToMarketResponse
+from .implementations.economic import (
+    sector_forecast_impl, monte_carlo_var_impl, post_to_market_impl,
+    analyze_historical_performance_impl, analyze_buyer_preferences_impl, research_competitive_pricing_impl
+)
+from .schemas import (
+    SectorForecastResponse, MonteCarloVarResponse, PostToMarketResponse,
+    HistoricalPerformanceResponse, BuyerPreferenceResponse, CompetitivePricingResponse
+)
 
 
 def create_economic_tools(market_model, config_data: Dict[str, Any]) -> List[FunctionTool]:
@@ -81,9 +87,42 @@ def create_economic_tools(market_model, config_data: Dict[str, Any]) -> List[Fun
         return post_to_market_impl(market_model, config_data, notional, payoff_type, underlying_forecast, discount_rate, effort)
     
     
+    async def analyze_historical_performance(
+        sector: Annotated[str, "Sector to analyze (tech, finance, healthcare, energy)"],
+        effort: Annotated[float, "Credits to allocate (0.1-10.0)"]
+    ) -> HistoricalPerformanceResponse:
+        """Analyze historical performance-revenue relationships within a sector for market research."""
+        
+        effort = handle_budget(market_model, config_data, effort, "analyze_historical_performance")
+        return analyze_historical_performance_impl(market_model, config_data, sector, effort)
+    
+    
+    async def analyze_buyer_preferences(
+        sector: Annotated[str, "Sector to analyze (tech, finance, healthcare, energy)"],
+        effort: Annotated[float, "Credits to allocate (0.1-10.0)"]
+    ) -> BuyerPreferenceResponse:
+        """Analyze buyer preference patterns within a sector for market research."""
+        
+        effort = handle_budget(market_model, config_data, effort, "analyze_buyer_preferences")
+        return analyze_buyer_preferences_impl(market_model, config_data, sector, effort)
+    
+    
+    async def research_competitive_pricing(
+        sector: Annotated[str, "Sector to analyze (tech, finance, healthcare, energy)"],
+        effort: Annotated[float, "Credits to allocate (0.1-10.0)"]
+    ) -> CompetitivePricingResponse:
+        """Research competitive pricing patterns within a sector for market research."""
+        
+        effort = handle_budget(market_model, config_data, effort, "research_competitive_pricing")
+        return research_competitive_pricing_impl(market_model, config_data, sector, effort)
+    
+    
     # Return tools
     return [
         FunctionTool(sector_forecast, description="Generate sector growth forecast"),
         FunctionTool(monte_carlo_var, description="Calculate portfolio Value at Risk"), 
-        FunctionTool(post_to_market, description="Price structured financial instruments")
+        FunctionTool(post_to_market, description="Price structured financial instruments"),
+        FunctionTool(analyze_historical_performance, description="Analyze historical performance-revenue relationships"),
+        FunctionTool(analyze_buyer_preferences, description="Analyze buyer preference patterns"),
+        FunctionTool(research_competitive_pricing, description="Research competitive pricing patterns")
     ]
