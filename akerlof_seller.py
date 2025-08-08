@@ -9,12 +9,13 @@ The asymmetric information between true quality and observable attributes create
 conditions for adverse selection and potential market failure.
 """
 
+import itertools
 import numpy as np
 from typing import List, Tuple, Dict, Optional
 from multi_agent_economics.models.market_for_finance import (
     MarketModel, MarketState, Offer, ForecastData, TradeData, RegimeParameters,
     BuyerState, SellerState, build_confusion_matrix, generate_forecast_signal,
-    categorical_draw
+    categorical_draw, get_average_attribute_vector
 )
 from multi_agent_economics.tools.implementations.economic import sector_forecast_impl
 
@@ -175,6 +176,9 @@ class AkerlofSeller:
         effort_numeric = self._convert_effort_to_numeric(optimal_effort)
         
         # Generate forecast with chosen effort level
+        # NOTE: For simplicity, we assume sector is set in context
+        # This means that our sellers only operate in one sector
+    
         sector = self.context.get('sector', 'tech')  # Get sector from context, default to 'tech'
         horizon = self.context.get('horizon', 1)     # Get forecast horizon from context, default to 1
         
@@ -191,38 +195,6 @@ class AkerlofSeller:
         self.market_state.knowledge_good_forecasts[forecast_id] = forecast_data
 
         return optimal_effort, (forecast_id, forecast_data)
-
-    def generate_forecast_with_effort(self, effort_level: str, round_num: int) -> Tuple[str, ForecastData]:
-        """
-        Generate forecast with specified effort level for testing purposes.
-        
-        Args:
-            effort_level: String effort level ('high', 'medium', 'low')
-            round_num: Round number for forecast ID
-            
-        Returns:
-            Tuple of (forecast_id, forecast_data)
-        """
-        # Convert effort string to numeric value for economic tools
-        effort_numeric = self._convert_effort_to_numeric(effort_level)
-        
-        # Generate forecast with chosen effort level
-        sector = self.context.get('sector', 'tech')
-        horizon = self.context.get('horizon', 1)
-        
-        forecast_data = sector_forecast_impl(
-            self.market_model,
-            config_data=self.context,
-            sector=sector,
-            horizon=horizon,
-            effort=effort_numeric
-        )
-        forecast_id = f"{self.seller_id}_forecast_r{round_num}_{effort_level}"
-        
-        # Store forecast in market state for buyer access
-        self.market_state.knowledge_good_forecasts[forecast_id] = forecast_data
-        
-        return forecast_id, forecast_data
 
 
     def stage2_marketing_decision(self, effort_level: str, good_id: str, market_competition: List[Offer]) -> Offer:
@@ -241,6 +213,10 @@ class AkerlofSeller:
             
         Returns:
             Offer object posted to market
+        
+        Note:
+            This method assumes the seller has already produced the good
+            and is now deciding how to market it.
         """
         # Extract buyer preferences for optimal attribute selection
         avg_buyer_prefs = self.extract_buyer_preferences()
@@ -293,43 +269,46 @@ class AkerlofSeller:
             competition: Competing offers
             
         Returns:
-            Chosen attribute vector [attr1, attr2]
+            Chosen marketing attributes as a dictionary
         """
-        # Get marketing strategies from context, with defaults
-        strategies = self.context.get('marketing_strategies', {
-            'premium_claims': [0.9, 0.8],    # High claims, high marketing cost (10)
-            'standard_claims': [0.7, 0.6],   # Medium claims, medium marketing cost (5)
-            'basic_claims': [0.5, 0.4]       # Low claims, low marketing cost (2)
-        })
-        
+        # Get marketing strategies from context
+        strategie_choices = self.context.get('marketing_strategies')
+        # Find all combinations of strategies that combine the choices in strategies
+        strategy_set = [dict(zip(strategie_choices.keys(), v))
+                        for v in itertools.product(*strategie_choices.values())]
+
         # Get pricing parameters from context
         wtp_pricing_factor = self.context.get('wtp_pricing_factor', 0.9)  # Default 90% of WTP
         
-        best_strategy = None
+        best_strategy = self.context.get('default_strategy')
         best_profit = -float('inf')
-        
-        for strategy_name, attributes in strategies.items():
+
+        for strategy in strategy_set:
             # Estimate revenue from this strategy
-            wtp = self._estimate_willingness_to_pay_for_attrs(attributes, avg_buyer_prefs)
-            marketing_cost = self.marketing_costs[strategy_name]
-            
+            avg_attrs = get_average_attribute_vector(strategy, self.market_state.buyers_state, self.market_state.attribute_order)
+
+            wtp = self._estimate_willingness_to_pay_for_attrs(avg_attrs, avg_buyer_prefs)
+            # Add up marketing costs for this strategy
+            marketing_cost = sum(self.marketing_costs.get(k, {}).get(v, 0) for k, v in strategy.items())
+
             # Calculate expected profit (revenue - marketing cost)
             expected_profit = wtp * wtp_pricing_factor - marketing_cost
             
+            # TODO: Research whether there is a way for Akerlof Sellers to estimate the expected demand for their offers under competition
+            # This will enhance realism but is potentially too complex for now
+            
             if expected_profit > best_profit:
                 best_profit = expected_profit
-                best_strategy = attributes
+                best_strategy = strategy
+
+        return best_strategy
         
-        # Get default fallback from context
-        default_strategy = self.context.get('default_strategy', [0.7, 0.6])
-        return best_strategy if best_strategy else default_strategy
-        
-    def estimate_competitive_price(self, proposed_attrs: List[float], competition: List[Offer]) -> float:
+    def estimate_competitive_price(self, marketing_attrs: Dict, competition: List[Offer]) -> float:
         """
-        Estimate competitive price for given attributes.
+        Estimate competitive price for given marketing attributes.
         
         Args:
-            proposed_attrs: Proposed attribute vector
+            marketing_attrs: Proposed marketing attributes dict
             competition: List of competing offers
             
         Returns:
@@ -339,11 +318,13 @@ class AkerlofSeller:
             # No competition - price based on buyer willingness-to-pay
             wtp_pricing_factor = self.context.get('wtp_pricing_factor', 0.9)  # Default 90% of WTP
             avg_prefs = self.extract_buyer_preferences()
-            wtp = self._estimate_willingness_to_pay_for_attrs(proposed_attrs, avg_prefs)
+            # Convert marketing attributes to average attribute vector for WTP calculation
+            avg_attrs = get_average_attribute_vector(marketing_attrs, self.market_state.buyers_state, self.market_state.attribute_order)
+            wtp = self._estimate_willingness_to_pay_for_attrs(avg_attrs, avg_prefs)
             return wtp * wtp_pricing_factor
         else:
             # With competition - price below similar competitors
-            return self._competitive_pricing(proposed_attrs, competition)
+            return self._competitive_pricing(marketing_attrs, competition)
             
     def _estimate_willingness_to_pay_for_attrs(self, attrs: List[float], buyer_prefs: List[float]) -> float:
         """
@@ -380,12 +361,12 @@ class AkerlofSeller:
         wtp_scaling_factor = self.context.get('wtp_scaling_factor', 100.0)  # Default 100x scaling
         return self._estimate_willingness_to_pay_for_attrs(attrs, avg_prefs) * wtp_scaling_factor
             
-    def _competitive_pricing(self, attrs: List[float], competition: List[Offer]) -> float:
+    def _competitive_pricing(self, marketing_attrs: Dict, competition: List[Offer]) -> float:
         """
         Set competitive pricing considering similar offers.
         
         Args:
-            attrs: Proposed attribute vector
+            marketing_attrs: Proposed marketing attributes dict
             competition: Competing offers
             
         Returns:
@@ -399,7 +380,7 @@ class AkerlofSeller:
         similar_prices = []
         
         for offer in competition:
-            similarity = self.calculate_attribute_similarity(attrs, offer.attr_vector)
+            similarity = self.calculate_attribute_similarity(marketing_attrs, offer.marketing_attributes)
             if similarity >= similarity_threshold:
                 similar_prices.append(offer.price)
                 
@@ -411,18 +392,25 @@ class AkerlofSeller:
             # No similar competition - fall back to WTP pricing
             return self._estimate_willingness_to_pay(attrs)
             
-    def calculate_attribute_similarity(self, attrs1: List[float], attrs2: List[float]) -> float:
+    def calculate_attribute_similarity(self, marketing_attrs1: Dict, marketing_attrs2: Dict) -> float:
         """
-        Calculate similarity between two attribute vectors using Euclidean distance.
+        Calculate similarity between two marketing attribute sets using average buyer perceptions.
         
         Args:
-            attrs1: First attribute vector
-            attrs2: Second attribute vector
+            marketing_attrs1: First marketing attributes dict (e.g., {"innovation": "high", "risk_score": 25})
+            marketing_attrs2: Second marketing attributes dict
             
         Returns:
             Similarity score [0, 1] where 1 = identical, 0 = maximally different
         """
-        if len(attrs1) != len(attrs2):
+        buyers = self.market_state.buyers_state
+        attribute_order = self.market_state.attribute_order
+        
+        # Convert marketing attributes to average attribute vectors using market perception
+        attrs1 = get_average_attribute_vector(marketing_attrs1, buyers, attribute_order)
+        attrs2 = get_average_attribute_vector(marketing_attrs2, buyers, attribute_order)
+        
+        if not attrs1 or not attrs2 or len(attrs1) != len(attrs2):
             return 0.0
             
         # Calculate Euclidean distance
@@ -434,13 +422,13 @@ class AkerlofSeller:
         
         return max(0.0, similarity)
         
-    def create_and_post_offer(self, good_id: str, attrs: List[float], price: float) -> Offer:
+    def create_and_post_offer(self, good_id: str, marketing_attrs: Dict, price: float) -> Offer:
         """
         Create offer and post it to market state.
         
         Args:
             good_id: Forecast ID to be offered
-            attrs: Chosen attribute vector
+            marketing_attrs: Chosen marketing attributes dict
             price: Chosen price
             
         Returns:
@@ -450,7 +438,7 @@ class AkerlofSeller:
             good_id=good_id,
             price=price,
             seller=self.seller_id,
-            attr_vector=attrs
+            marketing_attributes=marketing_attrs
         )
         
         # Add to market state
