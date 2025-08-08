@@ -205,10 +205,10 @@ def post_to_market_impl(
         effort: Effort level allocated
     
     Returns:
-        PriceNoteResponse: Complete Pydantic response
+        PostToMarketResponse: Complete Pydantic response
     """
     # Unpack parameters from config
-    tool_params = config_data.get("tool_parameters", {}).get("price_note", {})
+    tool_params = config_data.get("tool_parameters", {}).get("post_to_market", {})
     
     # Determine quality tier from effort
     effort_thresholds = tool_params.get("effort_thresholds", {"high": 7.0, "medium": 3.5})
@@ -267,7 +267,7 @@ def post_to_market_impl(
     if payoff_type.lower() not in ["linear", "barrier", "autocall", "digital"]:
         warnings.append(f"Unknown payoff type '{payoff_type}', using linear pricing")
     
-    return PriceNoteResponse(
+    return PostToMarketResponse(
         notional=notional,
         payoff_type=payoff_type,
         fair_value=float(fair_value),

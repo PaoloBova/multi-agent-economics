@@ -74,7 +74,7 @@ def create_economic_tools(market_model, config_data: Dict[str, Any]) -> List[Fun
         underlying_forecast: Annotated[List[float], "Expected returns for underlying assets"],
         discount_rate: Annotated[float, "Risk-free discount rate"] = 0.03,
         effort: Annotated[float, "Credits to allocate"] = 1.0
-    ) -> PriceNoteResponse:
+    ) -> PostToMarketResponse:
         """Price structured financial instruments and post to market."""
         
         effort = handle_budget(market_model, config_data, effort, "post_to_market")

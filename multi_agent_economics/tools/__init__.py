@@ -14,7 +14,7 @@ from .unified import create_all_tools
 from .schemas import (
     SectorForecastResponse,
     MonteCarloVarResponse,
-    PriceNoteResponse,
+    PostToMarketResponse,
     ArtifactLoadResponse,
     ArtifactUnloadResponse,
     ArtifactWriteResponse,
@@ -30,7 +30,7 @@ __all__ = [
     # Response schemas
     'SectorForecastResponse',
     'MonteCarloVarResponse', 
-    'PriceNoteResponse',
+    'PostToMarketResponse',
     'ArtifactLoadResponse',
     'ArtifactUnloadResponse',
     'ArtifactWriteResponse',
