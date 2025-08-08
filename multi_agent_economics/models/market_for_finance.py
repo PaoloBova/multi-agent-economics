@@ -7,7 +7,7 @@ supply and demand, information flow, and budget allocation among agents.
 
 import numpy
 from pydantic import Field, BaseModel
-from typing import Any, Callable
+from typing import Any, Callable, Union
 
 import numpy as np
 
@@ -481,6 +481,132 @@ def categorical_draw(probs):
     # find first index where cum ≥ u
     return int(numpy.searchsorted(cum, u, side='right'))
 
+
+def convert_marketing_to_features(marketing_attributes: dict[str, Any], 
+                                buyer_conversion_function: dict[str, dict[str, float]],
+                                attribute_order: list[str]) -> list[float]:
+    """
+    Convert seller's marketing attributes to buyer's numeric features using canonical ordering.
+    
+    Args:
+        marketing_attributes: Seller's original marketing attributes (e.g., {"methodology": "premium", "data_coverage": 0.85})
+        buyer_conversion_function: Buyer's conversion mapping (e.g., {"methodology": {"premium": 0.9, "standard": 0.7}})
+        attribute_order: Canonical order of attributes for consistent attribute vector generation
+        
+    Returns:
+        List of numeric features for buyer's choice model, ordered according to attribute_order
+    """
+    features = []
+    
+    for attr_name in attribute_order:
+        if attr_name in marketing_attributes and attr_name in buyer_conversion_function:
+            attr_value = marketing_attributes[attr_name]
+            attr_mapping = buyer_conversion_function[attr_name]
+            
+            # Handle both categorical and numeric attributes
+            if isinstance(attr_value, (int, float)):
+                # Numeric attribute - use as-is or apply scaling if defined
+                if "numeric_scaling" in attr_mapping:
+                    # Apply buyer-specific scaling: feature = base + scale * value
+                    base = attr_mapping.get("base", 0.0)
+                    scale = attr_mapping.get("scale", 1.0) 
+                    feature = base + scale * attr_value
+                else:
+                    # Use numeric value directly
+                    feature = float(attr_value)
+            else:
+                # Categorical attribute - look up in conversion mapping
+                attr_value_str = str(attr_value)
+                if attr_value_str in attr_mapping:
+                    feature = attr_mapping[attr_value_str]
+                else:
+                    # Unknown attribute value - use default of 0.0
+                    feature = 0.0
+        else:
+            # Missing attribute or no buyer conversion - use default
+            feature = 0.0
+        
+        features.append(feature)
+    
+    return features
+
+
+def get_average_attribute_vector(marketing_attributes: dict[str, Any], 
+                               buyers: list, 
+                               attribute_order: list[str]) -> list[float]:
+    """
+    Convert marketing attributes to average attribute vector across all buyers for competitive pricing.
+    
+    This function is used by the Akerlof Seller to estimate market perception of marketing attributes
+    by averaging how all buyers would convert the attributes to numeric features.
+    
+    Args:
+        marketing_attributes: Seller's marketing attributes (e.g., {"innovation": "high", "risk_score": 25})
+        buyers: List of BuyerState objects with their conversion functions
+        attribute_order: Canonical order of attributes for consistent vector generation
+        
+    Returns:
+        List of averaged numeric features representing market perception of the attributes
+    """
+    if not buyers or not marketing_attributes or not attribute_order:
+        return []
+    
+    # Convert using each buyer's conversion function
+    all_conversions = []
+    for buyer in buyers:
+        try:
+            features = convert_marketing_to_features(
+                marketing_attributes, 
+                buyer.buyer_conversion_function, 
+                attribute_order
+            )
+            all_conversions.append(features)
+        except (ValueError, KeyError, TypeError):
+            continue  # Skip buyers without proper conversion functions
+    
+    if not all_conversions:
+        return []
+    
+    # Average across all buyers
+    num_features = len(all_conversions[0])
+    return [
+        sum(conv[i] for conv in all_conversions) / len(all_conversions) 
+        for i in range(num_features)
+    ]
+
+
+def get_marketing_attribute_description(marketing_attributes: dict[str, Any], 
+                                      marketing_definitions: dict[str, dict[str, Any]]) -> dict[str, str]:
+    """
+    Convert marketing attributes to human-readable descriptions using global definitions.
+    
+    Args:
+        marketing_attributes: Marketing attributes to describe
+        marketing_definitions: Global definitions of attributes and their meanings
+        
+    Returns:
+        Dictionary mapping attribute names to descriptive strings
+    """
+    descriptions = {}
+    
+    for attr_name, attr_value in marketing_attributes.items():
+        if attr_name in marketing_definitions:
+            definition = marketing_definitions[attr_name]
+            attr_type = definition.get("type", "categorical")
+            
+            if attr_type == "numeric":
+                # For numeric attributes, provide range context
+                range_info = definition.get("range", [0, 1])
+                descriptions[attr_name] = f"{attr_value} (range: {range_info[0]}-{range_info[1]})"
+            else:
+                # For categorical attributes, use the value directly or map if available
+                value_descriptions = definition.get("descriptions", {})
+                descriptions[attr_name] = value_descriptions.get(str(attr_value), str(attr_value))
+        else:
+            descriptions[attr_name] = str(attr_value)
+    
+    return descriptions
+
 def sample_cart_multidraw(offers, probs, budget, T=10000):
     """
     Build a “cart” by sampling offers without replacement until budget runs out
@@ -545,10 +671,13 @@ def greedy_budget_choice(offers, V, B):
             remaining -= price
     return cart
 
-def choice_model(buyer_state, offers, config):
+def choice_model(buyer_state, offers, config, model_state):
     """Dispatches to the appropriate choice model based on configuration."""
-    # Calculate value of each offer to the buyer
-    V = lambda offer: numpy.dot(buyer_state.attr_weights, offer.attr_vector)
+    # Calculate value of each offer to the buyer using canonical attribute ordering
+    V = lambda offer: numpy.dot(buyer_state.attr_weights, 
+                                convert_marketing_to_features(offer.marketing_attributes, 
+                                                              buyer_state.buyer_conversion_function,
+                                                              model_state.attribute_order))
     value_of = [V(offer) for offer in offers]
     buyer_state.value_of = value_of  # Store for later use
     if "cart_draws" not in config:
@@ -709,8 +838,9 @@ def update_buyer_preferences_from_knowledge_goods(buyer_state, model_state, obs_
             continue
             
         offer = offer_lookup[good_id]
-        x = offer.attr_vector  # Attribute vector [q_theme1, q_methodA, ...]
-        
+        x = convert_marketing_to_features(offer.marketing_attributes, 
+                                          buyer_state.buyer_conversion_function,
+                                          model_state.attribute_order)
         # Bayesian update: economic_impact ≈ x·β + noise, noise~N(0,obs_noise_var)
         # This assumes the economic impact can be linearly attributed to attributes
         for j, x_j in enumerate(x):
@@ -749,7 +879,7 @@ def run_market_dynamics(model, market_cfg):
     buyers_state = model.state.buyers_state
     choices = []
     for buyer_state in buyers_state:
-        offers_chosen = choice_model(buyer_state, offers, market_cfg)
+        offers_chosen = choice_model(buyer_state, offers, market_cfg, model.state)
         for offer in offers_chosen:
             choices.append((buyer_state.buyer_id, offer))
     
@@ -845,13 +975,24 @@ class TradeData(BaseModel):
     price: float = Field(..., description="Trade price", gt=0)
     quantity: int = Field(..., description="Trade quantity", gt=0)
     good_id: str = Field(..., description="ID of the traded good")
+    marketing_attributes: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Original marketing attributes from the winning offer"
+    )
+    buyer_conversion_used: dict[str, float] = Field(
+        default_factory=dict,
+        description="Buyer's converted numeric features used in choice model"
+    )
     
 class Offer(BaseModel):
     """ Represents an offer in the market."""
     good_id: str = Field(..., description="Unique identifier for the good")
     price: float = Field(..., description="Price of the offer", gt=0)
     seller: str = Field(..., description="ID of the seller agent")
-    attr_vector: list[float] = Field(..., description="Attributes of the offer (e.g., quality, features)")
+    marketing_attributes: dict[str, Any] = Field(
+        default_factory=dict, 
+        description="Original marketing attributes posted by seller (qualitative/numeric)"
+    )
 
 class BuyerState(BaseModel):
     """State of a buyer agent in the market."""
@@ -862,8 +1003,15 @@ class BuyerState(BaseModel):
     attr_sigma2: list[float] = Field(default_factory=list, description="Variance of preferences for each attribute")
     attr_weights: list[float] = Field(default_factory=list, description="Current attribute weights for utility calculation")
     budget: float = Field(default=100.0, description="Available budget for purchases", ge=0)
+    # TODO: Should budget update dynamically based on trades and expectations?
     surplus: float = Field(default=0.0, description="Current period surplus")
     value_of: list[float] = Field(default_factory=list, description="Calculated values of current offers")
+    
+    # Marketing attribute system - buyer-specific conversion
+    buyer_conversion_function: dict[str, dict[str, float]] = Field(
+        default_factory=dict,
+        description="Buyer's personal conversion from marketing attributes to numeric features"
+    )
 
 class SellerState(BaseModel):
     """State of a seller agent in the market."""
@@ -901,6 +1049,21 @@ class MarketState(BaseModel):
     current_period: int = Field(default=0, description="Current simulation time step", ge=0)
     knowledge_good_impacts: dict[str, dict[str, float]] = Field(default_factory=dict, description="Impact of knowledge goods on buyer profits")
     knowledge_good_forecasts: dict[str, ForecastData] = Field(default_factory=dict, description="Mapping good_id -> forecast data")
+    
+    # Market research data
+    performance_mapping: dict[str, float] = Field(default_factory=dict, description="Mapping good_id -> actual performance level for market research")
+    
+    # Marketing attribute system - global definitions
+    marketing_attribute_definitions: dict[str, dict[str, Any]] = Field(
+        default_factory=dict, 
+        description="Global definitions of available marketing attributes and their valid values"
+    )
+    
+    # Canonical ordering for consistent attribute vector generation
+    attribute_order: list[str] = Field(
+        default_factory=list,
+        description="Canonical order of attributes for consistent attribute vector generation across all buyers"
+    )
     
     # Risk parameters
     risk_free_rate: float = Field(default=0.03, description="Risk-free rate for portfolio optimization", ge=0)
