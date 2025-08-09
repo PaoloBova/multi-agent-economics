@@ -73,7 +73,7 @@ def sector_forecast_impl(
     next_period = state.current_period + 1
     if hasattr(state, 'regime_history') and len(state.regime_history) > next_period:
         # Use pre-generated regime from history
-        true_next_regime = state.regime_history[next_period]["regimes"][sector]
+        true_next_regime = state.regime_history[next_period].regimes[sector]
     elif hasattr(state, 'transition_matrices') and sector in state.transition_matrices:
         # Fallback: simulate using transition matrix if no history available
         transition_matrix = state.transition_matrices[sector]
