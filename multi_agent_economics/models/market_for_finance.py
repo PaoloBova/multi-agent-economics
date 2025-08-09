@@ -913,6 +913,9 @@ def run_market_dynamics(model, market_cfg):
 
     # 4. Demand-side shock for next round - update buyer preferences based on knowledge good performance
     transition_demand(model, market_cfg)
+    
+    # Reset offers for next round
+    model.state.offers = []
 
     return trades
 
