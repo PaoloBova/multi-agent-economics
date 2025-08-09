@@ -330,7 +330,7 @@ def analyze_buyer_preferences_impl(
         buyer.ensure_sector_exists(sector, len(attribute_order))
 
     # Generate representative test offers for this sector
-    marketing_definitions = state.marketing_definitions.get(sector, {})
+    marketing_definitions = state.marketing_attribute_definitions
     test_offers = generate_test_offers(sector, num_test_offers, attribute_order, marketing_definitions)
     
     # Calculate WTP for each buyer-offer combination
@@ -438,7 +438,7 @@ def research_competitive_pricing_impl(
     config_data: Dict[str, Any],
     sector: str,
     effort: float,
-    marketing_attributes: Dict[str, Any] = None
+    marketing_attributes: Dict[str, Any]
 ) -> CompetitivePricingResponse:
     """
     Research competitive pricing by simulating market share against real competitors.
@@ -506,8 +506,8 @@ def research_competitive_pricing_impl(
         competitor_offer = Offer(
             good_id=trade.good_id,
             price=trade.price,
-            seller=getattr(trade, 'seller_id', 'competitor'),
-            marketing_attributes=getattr(trade, 'marketing_attributes', {})
+            seller=trade.seller_id,
+            marketing_attributes=trade.marketing_attributes
         )
         competitor_offers.append(competitor_offer)
     
@@ -531,7 +531,7 @@ def research_competitive_pricing_impl(
             recommendation="Cannot simulate without buyers"
         )
     
-    attribute_order = getattr(state, 'attribute_order', [])
+    attribute_order = state.attribute_order
     
     sampled_buyers = np.random.choice(all_buyers, size=min(num_buyers, len(all_buyers)), replace=False)
 

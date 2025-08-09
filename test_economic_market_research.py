@@ -122,7 +122,7 @@ def market_state_with_data(regime_parameters_setup, transition_matrices_setup, c
         buyers_state=[],
         sellers_state=[],
         
-        # Marketing attribute system
+        # Global marketing attribute definitions (used by all sectors)
         marketing_attribute_definitions={
             "innovation_level": {
                 "type": "qualitative",
@@ -147,8 +147,8 @@ def market_state_with_data(regime_parameters_setup, transition_matrices_setup, c
     )
 
 
-@pytest.fixture  
-def buyers_with_preferences(market_state_with_data, agent_beliefs_setup):
+@pytest.fixture
+def buyers_with_preferences(agent_beliefs_setup):
     """
     Create buyers with sector-specific preferences for testing preference analysis.
     Tech buyers prefer innovation, finance buyers prefer data quality.
@@ -249,17 +249,12 @@ def buyers_with_preferences(market_state_with_data, agent_beliefs_setup):
             }
         )
     ]
-    market_state_with_data.buyers_state = buyers
     return buyers
 
 
 @pytest.fixture
-def competitive_offers(market_state_with_data, regime_history_data):
+def competitive_offers():
     """Create current competitive offers across sectors with regime-appropriate pricing."""
-    
-    # Get current regimes from period 10 (tech=1 [bad], finance=0 [good], healthcare=1 [bad])
-    current_period = 10
-    current_regimes = regime_history_data[current_period].regimes
     
     offers = [
         # Tech sector competitive offers - lower prices due to bad regime (regime=1)
@@ -292,23 +287,7 @@ def competitive_offers(market_state_with_data, regime_history_data):
             marketing_attributes={"innovation_level": "medium", "data_source": "external", "risk_score": 50}
         ),
     ]
-    
-    # Add competitive forecasts to knowledge base with realistic confidence based on regimes
-    market_state_with_data.knowledge_good_forecasts.update({
-        # Tech forecasts - regime 1 (bad)
-        "tech_comp_1": ForecastData(sector="tech", predicted_regime=1, confidence_vector=[0.3, 0.7]),
-        "tech_comp_2": ForecastData(sector="tech", predicted_regime=1, confidence_vector=[0.2, 0.8]),  
-        "tech_comp_3": ForecastData(sector="tech", predicted_regime=1, confidence_vector=[0.4, 0.6]),
-        
-        # Finance forecasts - regime 0 (good)
-        "finance_comp_1": ForecastData(sector="finance", predicted_regime=0, confidence_vector=[0.8, 0.2]),
-        "finance_comp_2": ForecastData(sector="finance", predicted_regime=0, confidence_vector=[0.7, 0.3]),
-        
-        # Healthcare forecasts - regime 1 (bad)
-        "healthcare_comp_1": ForecastData(sector="healthcare", predicted_regime=1, confidence_vector=[0.3, 0.7]),
-    })
-    
-    market_state_with_data.offers.extend(offers)
+
     return offers
 
 
@@ -727,37 +706,110 @@ def agent_beliefs_setup():
 
 
 @pytest.fixture
-def market_model(market_state_with_data):
-    """Create MarketModel instance with test data."""
+def complete_market_state(market_state_with_data, buyers_with_preferences, competitive_offers):
+    """
+    Create a complete market state by combining all components without side effects.
+    This ensures test isolation by creating a fresh state object.
+    """
+    # Create a copy of the market state to avoid mutating the original
+    import copy
+    complete_state = copy.deepcopy(market_state_with_data)
+    
+    # Add the buyers and offers to the copied state
+    complete_state.buyers_state = buyers_with_preferences
+    complete_state.offers = competitive_offers
+    
+    # Add competitive forecasts to knowledge base with realistic confidence based on regimes
+    complete_state.knowledge_good_forecasts.update({
+        # Tech forecasts - regime 1 (bad) based on period 10 regimes
+        "tech_comp_1": ForecastData(sector="tech", predicted_regime=1, confidence_vector=[0.3, 0.7]),
+        "tech_comp_2": ForecastData(sector="tech", predicted_regime=1, confidence_vector=[0.2, 0.8]),  
+        "tech_comp_3": ForecastData(sector="tech", predicted_regime=1, confidence_vector=[0.4, 0.6]),
+        
+        # Finance forecasts - regime 0 (good) based on period 10 regimes
+        "finance_comp_1": ForecastData(sector="finance", predicted_regime=0, confidence_vector=[0.8, 0.2]),
+        "finance_comp_2": ForecastData(sector="finance", predicted_regime=0, confidence_vector=[0.7, 0.3]),
+        
+        # Healthcare forecasts - regime 1 (bad) based on period 10 regimes
+        "healthcare_comp_1": ForecastData(sector="healthcare", predicted_regime=1, confidence_vector=[0.3, 0.7]),
+    })
+    
+    return complete_state
+
+
+@pytest.fixture
+def market_model(complete_market_state):
+    """Create MarketModel instance with complete test data."""
     return MarketModel(
         id=1,
         name="test_market", 
         agents=[],
-        state=market_state_with_data,
+        state=complete_market_state,
         step=lambda: None,
         collect_stats=lambda: {}
     )
 
 
 @pytest.fixture
+def standard_marketing_attributes():
+    """Standard marketing attributes for competitive pricing tests."""
+    return {
+        "innovation_level": "medium",
+        "data_source": "proprietary", 
+        "risk_score": 50
+    }
+
+
+@pytest.fixture
 def tool_config():
-    """Configuration for economic research tools."""
+    """Comprehensive configuration for economic research tools with all default parameters."""
     return {
         "tool_parameters": {
+            "sector_forecast": {
+                "effort_thresholds": {"high": 5.0, "medium": 2.0},
+                "effort_level_quality_mapping": {"high": 0.9, "medium": 0.7, "low": 0.5},
+                "default_num_regimes": 2,
+                "base_forecast_quality": 0.6,
+                "default_regime_persistence": 0.8
+            },
             "analyze_historical_performance": {
-                "effort_thresholds": {"high": 3.0, "medium": 1.5}
+                "effort_thresholds": {"high": 3.0, "medium": 1.5},
+                "high_effort_max_trades": 100,
+                "high_effort_noise_factor": 0.05,
+                "medium_effort_max_trades": 50,
+                "medium_effort_noise_factor": 0.1,
+                "low_effort_max_trades": 20,
+                "low_effort_noise_factor": 0.2
             },
             "analyze_buyer_preferences": {
-                "effort_thresholds": {"high": 3.0, "medium": 1.5}
+                "effort_thresholds": {"high": 3.0, "medium": 1.5},
+                "high_effort_num_buyers": 30,
+                "high_effort_num_test_offers": 12,
+                "high_effort_analyze_by_attribute": True,
+                "medium_effort_num_buyers": 15,
+                "medium_effort_num_test_offers": 6,
+                "medium_effort_analyze_by_attribute": False,
+                "low_effort_num_buyers": 5,
+                "low_effort_num_test_offers": 3,
+                "low_effort_analyze_by_attribute": False
             },
             "research_competitive_pricing": {
-                "effort_thresholds": {"high": 2.5, "medium": 1.2}
-            },
-            "sector_forecast": {
-                "effort_thresholds": {"high": 5.0, "medium": 2.0}
+                "effort_thresholds": {"high": 2.5, "medium": 1.2},
+                "high_effort_num_buyers": 30,
+                "high_effort_price_points": 12,
+                "high_effort_lookback_trades": 50,
+                "medium_effort_num_buyers": 15,
+                "medium_effort_price_points": 6,
+                "medium_effort_lookback_trades": 20,
+                "low_effort_num_buyers": 8,
+                "low_effort_price_points": 4,
+                "low_effort_lookback_trades": 10
             }
         },
+        # Global configuration
         "seller_id": "test_seller",
+        "choice_model": "greedy",
+        "cart_draws": None
     }
 
 
@@ -990,10 +1042,11 @@ class TestBuyerPreferenceAnalysis:
 class TestCompetitivePricingResearch:
     """Test research_competitive_pricing_impl with market simulation scenarios."""
     
-    def test_competitive_pricing_interface(self, market_model, competitive_offers, tool_config):
+    def test_competitive_pricing_interface(self, market_model, competitive_offers, tool_config, standard_marketing_attributes):
         """Test competitive pricing research returns correct format."""
         result = research_competitive_pricing_impl(
-            market_model, tool_config, sector="tech", effort=2.0
+            market_model, tool_config, sector="tech", effort=2.0,
+            marketing_attributes=standard_marketing_attributes
         )
         
         assert isinstance(result, CompetitivePricingResponse)
@@ -1004,13 +1057,15 @@ class TestCompetitivePricingResearch:
         assert result.recommended_price >= 0
         assert isinstance(result.recommendation, str)
         
-    def test_competitive_landscape_analysis(self, market_model, competitive_offers, buyers_with_preferences, tool_config):
+    def test_competitive_landscape_analysis(self, market_model, competitive_offers, buyers_with_preferences, tool_config, standard_marketing_attributes):
         """Test analysis of competitive landscape by sector."""
         tech_result = research_competitive_pricing_impl(
-            market_model, tool_config, sector="tech", effort=3.0
+            market_model, tool_config, sector="tech", effort=3.0,
+            marketing_attributes=standard_marketing_attributes
         )
         finance_result = research_competitive_pricing_impl(
-            market_model, tool_config, sector="finance", effort=3.0
+            market_model, tool_config, sector="finance", effort=3.0,
+            marketing_attributes=standard_marketing_attributes
         )
         
         # Tech has 3 current offers + 6 historical trades = 9 total
@@ -1025,10 +1080,11 @@ class TestCompetitivePricingResearch:
         assert len(tech_result.price_simulations) > 0
         assert len(finance_result.price_simulations) > 0
         
-    def test_market_simulation_logic(self, market_model, buyers_with_preferences, competitive_offers, tool_config):
+    def test_market_simulation_logic(self, market_model, buyers_with_preferences, competitive_offers, tool_config, standard_marketing_attributes):
         """Test market share simulation with actual choice model."""
         result = research_competitive_pricing_impl(
-            market_model, tool_config, sector="tech", effort=3.0
+            market_model, tool_config, sector="tech", effort=3.0,
+            marketing_attributes=standard_marketing_attributes
         )
         
         # Should have price simulations with market share data
@@ -1052,14 +1108,15 @@ class TestCompetitivePricingResearch:
         best_sim = max(result.price_simulations, key=lambda x: x["expected_revenue"])
         assert abs(result.recommended_price - best_sim["price"]) < 0.01
         
-    def test_no_competition_scenario(self, market_model, tool_config):
+    def test_no_competition_scenario(self, market_model, tool_config, standard_marketing_attributes):
         """Test behavior when no competitive data is available."""
         # Clear all offers and trades to test no competition case
         market_model.state.offers = []
         market_model.state.all_trades = []
         
         result = research_competitive_pricing_impl(
-            market_model, tool_config, sector="tech", effort=2.0
+            market_model, tool_config, sector="tech", effort=2.0,
+            marketing_attributes=standard_marketing_attributes
         )
         
         # Should handle gracefully
@@ -1068,13 +1125,15 @@ class TestCompetitivePricingResearch:
         assert len(result.warnings) > 0
         assert "No competitive activity found" in result.warnings[0]
         
-    def test_effort_affects_simulation_quality(self, market_model, competitive_offers, buyers_with_preferences, tool_config):
+    def test_effort_affects_simulation_quality(self, market_model, competitive_offers, buyers_with_preferences, tool_config, standard_marketing_attributes):
         """Test effort level affects simulation comprehensiveness."""
         low_result = research_competitive_pricing_impl(
-            market_model, tool_config, sector="tech", effort=1.0
+            market_model, tool_config, sector="tech", effort=1.0,
+            marketing_attributes=standard_marketing_attributes
         )
         high_result = research_competitive_pricing_impl(
-            market_model, tool_config, sector="tech", effort=3.0
+            market_model, tool_config, sector="tech", effort=3.0,
+            marketing_attributes=standard_marketing_attributes
         )
         
         assert low_result.quality_tier == "low"
@@ -1095,7 +1154,7 @@ class TestCompetitivePricingResearch:
 class TestMarketResearchIntegration:
     """Test integration between tools and market framework."""
     
-    def test_empty_market_handling(self, tool_config):
+    def test_empty_market_handling(self, tool_config, standard_marketing_attributes):
         """Test tools handle empty market data gracefully."""
         empty_state = MarketState(
             offers=[], trades=[], demand_profile={}, supply_profile={},
@@ -1113,7 +1172,7 @@ class TestMarketResearchIntegration:
         
         hist_result = analyze_historical_performance_impl(empty_model, tool_config, "tech", 2.0)
         pref_result = analyze_buyer_preferences_impl(empty_model, tool_config, "tech", 2.0)
-        price_result = research_competitive_pricing_impl(empty_model, tool_config, "tech", 2.0)
+        price_result = research_competitive_pricing_impl(empty_model, tool_config, "tech", 2.0, marketing_attributes=standard_marketing_attributes)
         
         # Should return valid responses with appropriate warnings
         assert isinstance(hist_result, HistoricalPerformanceResponse)
@@ -1128,13 +1187,13 @@ class TestMarketResearchIntegration:
         assert "No buyers available for analysis" in pref_result.warnings
         assert any("No competitive activity found" in warning for warning in price_result.warnings)
         
-    def test_consistent_effort_mapping(self, market_model, buyers_with_preferences, competitive_offers, tool_config):
+    def test_consistent_effort_mapping(self, market_model, buyers_with_preferences, competitive_offers, tool_config, standard_marketing_attributes):
         """Test all tools use consistent effort-to-quality mapping."""
         effort = 2.5  # Should be medium for all tools
         
         hist_result = analyze_historical_performance_impl(market_model, tool_config, "tech", effort)
         pref_result = analyze_buyer_preferences_impl(market_model, tool_config, "tech", effort)
-        price_result = research_competitive_pricing_impl(market_model, tool_config, "tech", effort)
+        price_result = research_competitive_pricing_impl(market_model, tool_config, "tech", effort, marketing_attributes=standard_marketing_attributes)
         
         # All should have same quality tier for same effort
         assert hist_result.quality_tier == "medium"
@@ -1146,13 +1205,13 @@ class TestMarketResearchIntegration:
         assert pref_result.effort_used == effort
         assert price_result.effort_used == effort
         
-    def test_sector_consistency_across_tools(self, market_model, buyers_with_preferences, competitive_offers, tool_config):
+    def test_sector_consistency_across_tools(self, market_model, buyers_with_preferences, competitive_offers, tool_config, standard_marketing_attributes):
         """Test all tools respect sector boundaries consistently."""
         
         # Test tech sector across all tools
         hist_tech = analyze_historical_performance_impl(market_model, tool_config, "tech", 3.0)
         pref_tech = analyze_buyer_preferences_impl(market_model, tool_config, "tech", 3.0)
-        price_tech = research_competitive_pricing_impl(market_model, tool_config, "tech", 3.0)
+        price_tech = research_competitive_pricing_impl(market_model, tool_config, "tech", 3.0, marketing_attributes=standard_marketing_attributes)
         
         # All should analyze tech sector consistently
         assert hist_tech.sector == "tech"
@@ -1164,12 +1223,12 @@ class TestMarketResearchIntegration:
         assert pref_tech.sample_size == 2   # 2 tech buyers
         # price_tech analyzes competitive data which varies
         
-    def test_realistic_value_ranges(self, market_model, buyers_with_preferences, competitive_offers, tool_config):
+    def test_realistic_value_ranges(self, market_model, buyers_with_preferences, competitive_offers, tool_config, standard_marketing_attributes):
         """Test all tools return realistic values for economic scenarios."""
         
         hist_result = analyze_historical_performance_impl(market_model, tool_config, "tech", 3.0)
         pref_result = analyze_buyer_preferences_impl(market_model, tool_config, "tech", 3.0)
-        price_result = research_competitive_pricing_impl(market_model, tool_config, "tech", 3.0)
+        price_result = research_competitive_pricing_impl(market_model, tool_config, "tech", 3.0, marketing_attributes=standard_marketing_attributes)
         
         # Historical analysis - prices should be in realistic ranges
         if hist_result.trade_data:
