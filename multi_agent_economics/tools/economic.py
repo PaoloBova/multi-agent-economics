@@ -9,11 +9,11 @@ from typing_extensions import Annotated
 from autogen_core.tools import FunctionTool
 
 from .implementations.economic import (
-    sector_forecast_impl, monte_carlo_var_impl, post_to_market_impl,
+    sector_forecast_impl, post_to_market_impl,
     analyze_historical_performance_impl, analyze_buyer_preferences_impl, research_competitive_pricing_impl
 )
 from .schemas import (
-    SectorForecastResponse, MonteCarloVarResponse, PostToMarketResponse,
+    SectorForecastResponse, PostToMarketResponse,
     HistoricalPerformanceResponse, BuyerPreferenceResponse, CompetitivePricingResponse
 )
 
@@ -60,18 +60,6 @@ def create_economic_tools(market_model, config_data: Dict[str, Any]) -> List[Fun
         effort = handle_budget(market_model, config_data, effort, "sector_forecast")
 
         return sector_forecast_impl(market_model, config_data, sector, horizon, effort)
-    
-    
-    async def monte_carlo_var(
-        portfolio_value: Annotated[float, "Portfolio value to analyze in USD"],
-        volatility: Annotated[float, "Expected portfolio volatility (0.1 = 10%)"],
-        confidence_level: Annotated[float, "Confidence level for VaR calculation (0.95 = 95%)"] = 0.95,
-        effort: Annotated[float, "Credits to allocate"] = 1.0
-    ) -> MonteCarloVarResponse:
-        """Calculate portfolio Value at Risk using Monte Carlo simulation."""
-
-        effort = handle_budget(market_model, config_data, effort, "monte_carlo_var")
-        return monte_carlo_var_impl(market_model, config_data, portfolio_value, volatility, confidence_level, effort)
     
     
     async def post_to_market(

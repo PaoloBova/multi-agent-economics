@@ -71,7 +71,21 @@ def market_state():
         ],
         current_period=0,
         knowledge_good_forecasts={},
-        buyers_state=[]
+        buyers_state=[],
+        # Marketing attribute system for testing
+        marketing_attribute_definitions={
+            "innovation_level": {
+                "type": "qualitative",
+                "values": ["low", "medium", "high"],
+                "description": "Level of innovation in the offering"
+            },
+            "data_source": {
+                "type": "qualitative",
+                "values": ["internal", "external", "proprietary"],
+                "description": "Source of underlying data"
+            }
+        },
+        attribute_order=["innovation_level", "data_source"]
     )
 
 
@@ -101,7 +115,11 @@ def buyers_with_preferences(market_state):
             attr_mu=[0.8, 0.6],                   # High quality preference
             attr_sigma2=[0.1, 0.1],               # Low uncertainty
             attr_weights=[0.8, 0.6],              # Current weights match means
-            budget=200.0
+            budget=200.0,
+            buyer_conversion_function={
+                "innovation_level": {"high": 0.9, "medium": 0.6, "low": 0.2},
+                "data_source": {"proprietary": 0.8, "external": 0.5, "internal": 0.3}
+            }
         ),
         BuyerState(
             buyer_id="buyer_2",
@@ -109,7 +127,11 @@ def buyers_with_preferences(market_state):
             attr_mu=[0.4, 0.5],                   # Lower quality preference  
             attr_sigma2=[0.2, 0.15],              # Higher uncertainty
             attr_weights=[0.4, 0.5],              # Current weights match means
-            budget=150.0
+            budget=150.0,
+            buyer_conversion_function={
+                "innovation_level": {"high": 0.4, "medium": 0.5, "low": 0.3},
+                "data_source": {"proprietary": 0.5, "external": 0.6, "internal": 0.4}
+            }
         )
     ]
     market_state.buyers_state = buyers
@@ -512,10 +534,12 @@ class TestAkerlofSellerStage2:
         assert isinstance(offer.price, float), "Price must be numeric"
         assert offer.price > 0, f"Price must be positive, got {offer.price}"
         
-        # Attributes must be valid
-        assert isinstance(offer.attr_vector, list), "Attributes must be list"
-        assert len(offer.attr_vector) == 2, f"Must have 2 attributes, got {len(offer.attr_vector)}"
-        assert all(0 <= attr <= 1 for attr in offer.attr_vector), "Attributes must be in [0,1] range"
+        # Marketing attributes must be valid
+        assert isinstance(offer.marketing_attributes, dict), "Marketing attributes must be dict"
+        assert "innovation_level" in offer.marketing_attributes, "Must have innovation_level"
+        assert "data_source" in offer.marketing_attributes, "Must have data_source"
+        assert offer.marketing_attributes["innovation_level"] in ["low", "medium", "high"], "Invalid innovation level"
+        assert offer.marketing_attributes["data_source"] in ["internal", "external", "proprietary"], "Invalid data source"
         
         # Must be posted to market for buyer access
         assert offer in market_model.state.offers, "Offer must be added to market state"
@@ -618,16 +642,20 @@ class TestAkerlofSellerStage2:
         """
         seller = AkerlofSeller("test_seller", market_model, context_config)
         
-        proposed_attrs = [0.8, 0.7]
+        proposed_attrs = {"innovation_level": "high", "data_source": "external"}  # Equivalent to [0.8, 0.7]
         
         # Create competing offers with varying similarity levels
         competing_offers = [
             # Similar competitors (should influence pricing)
-            Offer(good_id="comp1", price=100, seller="comp1", attr_vector=[0.8, 0.7]),  # Identical
-            Offer(good_id="comp2", price=110, seller="comp2", attr_vector=[0.8, 0.8]),  # Very similar
-            Offer(good_id="comp3", price=95, seller="comp3", attr_vector=[0.7, 0.7]),   # Similar
+            Offer(good_id="comp1", price=100, seller="comp1", 
+                  marketing_attributes={"innovation_level": "high", "data_source": "external"}),  # Similar
+            Offer(good_id="comp2", price=110, seller="comp2", 
+                  marketing_attributes={"innovation_level": "high", "data_source": "proprietary"}),  # Very similar
+            Offer(good_id="comp3", price=95, seller="comp3", 
+                  marketing_attributes={"innovation_level": "medium", "data_source": "external"}),   # Similar
             # Dissimilar competitor (should not influence pricing)
-            Offer(good_id="comp4", price=150, seller="comp4", attr_vector=[0.3, 0.2])   # Very different
+            Offer(good_id="comp4", price=150, seller="comp4", 
+                  marketing_attributes={"innovation_level": "low", "data_source": "internal"})   # Very different
         ]
         
         price = seller.estimate_competitive_price(proposed_attrs, competing_offers)
@@ -722,19 +750,22 @@ class TestAkerlofSellerStage2:
         offer = seller.stage2_marketing_decision(effort_level, good_id, [])
         
         # Should select strategy that maximizes net revenue
-        # Expected attribute combinations for decision
+        # Expected marketing attribute combinations for decision
         valid_attribute_options = [
-            [0.9, 0.8],  # Premium claims  
-            [0.7, 0.6],  # Standard claims
-            [0.5, 0.4]   # Basic claims
+            {"innovation_level": "high", "data_source": "proprietary"},  # Premium claims  
+            {"innovation_level": "medium", "data_source": "external"},   # Standard claims
+            {"innovation_level": "low", "data_source": "internal"}       # Basic claims
         ]
         
-        assert offer.attr_vector in valid_attribute_options, \
-            f"Must choose from valid attribute options, got {offer.attr_vector}"
+        assert offer.marketing_attributes in valid_attribute_options, \
+            f"Must choose from valid attribute options, got {offer.marketing_attributes}"
         
-        # Price should reflect buyer WTP for chosen attributes  
-        avg_buyer_prefs = [0.6, 0.55]  # From buyers_with_preferences fixture
-        expected_wtp = sum(pref * attr for pref, attr in zip(avg_buyer_prefs, offer.attr_vector))
+        # Price should reflect buyer WTP for chosen attributes
+        # Convert marketing attributes to average numeric attributes for WTP calculation
+        from multi_agent_economics.models.market_for_finance import get_average_attribute_vector
+        avg_attrs = get_average_attribute_vector(offer.marketing_attributes, market_model.state.buyers_state, market_model.state.attribute_order)
+        avg_buyer_prefs = [0.65, 0.55]  # From buyers_with_preferences fixture (averaged)
+        expected_wtp = sum(pref * attr for pref, attr in zip(avg_buyer_prefs, avg_attrs))
         expected_price = expected_wtp * 0.9  # 90% of WTP pricing
         
         assert offer.price == pytest.approx(expected_price, abs=0.01), \
@@ -816,16 +847,16 @@ class TestAkerlofSellerIntegration:
         
         # Marketing decision inputs
         good_id = "integration_forecast_789"
-        attr_vector = [0.8, 0.7]  # High-medium attribute claims
+        marketing_attrs = {"innovation_level": "high", "data_source": "external"}  # High-medium attribute claims
         price = 95.0  # Competitive price
         
         initial_offer_count = len(market_model.state.offers)
         
-        offer = seller.create_and_post_offer(good_id, attr_vector, price)
+        offer = seller.create_and_post_offer(good_id, marketing_attrs, price)
         
         # Offer must be properly formatted  
         assert offer.good_id == good_id, "Offer must reference correct forecast"
-        assert offer.attr_vector == attr_vector, "Offer must have chosen attributes"
+        assert offer.marketing_attributes == marketing_attrs, "Offer must have chosen attributes"
         assert offer.price == price, "Offer must have chosen price"
         assert offer.seller == "test_seller", "Offer must identify seller"
         
@@ -891,8 +922,9 @@ class TestAkerlofSellerIntegration:
         
         # Verify economic consistency
         assert offer.price > 0, "Price must be positive"
-        assert len(offer.attr_vector) == 2, "Must have valid attribute vector"
-        assert all(0 <= attr <= 1 for attr in offer.attr_vector), "Attributes must be valid range"
+        assert isinstance(offer.marketing_attributes, dict), "Must have valid marketing attributes"
+        assert "innovation_level" in offer.marketing_attributes, "Must have innovation level"
+        assert "data_source" in offer.marketing_attributes, "Must have data source"
         
         # Integration success: Buyers can now evaluate and purchase this offer
         # through existing market clearing mechanisms
@@ -961,14 +993,16 @@ class TestAkerlofDeathSpiralScenarios:
         
         # Should choose premium attributes despite low production effort
         # (because mimicking yields higher profit than honest claims)
-        expected_premium_attrs = [0.9, 0.8]  # Highest attribute claims
-        assert offer.attr_vector == expected_premium_attrs, \
-            f"Expected mimicking with {expected_premium_attrs}, got {offer.attr_vector}. " \
+        expected_premium_attrs = {"innovation_level": "high", "data_source": "proprietary"}  # Highest attribute claims
+        assert offer.marketing_attributes == expected_premium_attrs, \
+            f"Expected mimicking with {expected_premium_attrs}, got {offer.marketing_attributes}. " \
             f"Low-quality seller should claim premium attributes when profitable."
         
         # Verify pricing matches premium attribute claims
-        avg_buyer_prefs = [6.0, 5.5]  # Scaled preferences from fixture
-        expected_premium_wtp = sum(pref * attr for pref, attr in zip(avg_buyer_prefs, expected_premium_attrs))
+        from multi_agent_economics.models.market_for_finance import get_average_attribute_vector
+        avg_attrs = get_average_attribute_vector(expected_premium_attrs, market_model.state.buyers_state, market_model.state.attribute_order)
+        avg_buyer_prefs = [0.6, 0.55]  # From buyers_with_preferences fixture
+        expected_premium_wtp = sum(pref * attr for pref, attr in zip(avg_buyer_prefs, avg_attrs))
         expected_price = expected_premium_wtp * 0.9
         
         assert offer.price == pytest.approx(expected_price, abs=1.0), \
@@ -1020,9 +1054,12 @@ class TestAkerlofDeathSpiralScenarios:
         
         # Create competitive market with low prices
         competitive_offers = [
-            Offer(good_id="comp1", price=80, seller="comp1", attr_vector=[0.9, 0.8]),
-            Offer(good_id="comp2", price=85, seller="comp2", attr_vector=[0.8, 0.9]), 
-            Offer(good_id="comp3", price=75, seller="comp3", attr_vector=[0.9, 0.7])
+            Offer(good_id="comp1", price=80, seller="comp1", 
+                  marketing_attributes={"innovation_level": "high", "data_source": "proprietary"}),
+            Offer(good_id="comp2", price=85, seller="comp2", 
+                  marketing_attributes={"innovation_level": "high", "data_source": "proprietary"}), 
+            Offer(good_id="comp3", price=75, seller="comp3", 
+                  marketing_attributes={"innovation_level": "high", "data_source": "external"})
         ]
         
         # High-effort production (expensive but high quality)

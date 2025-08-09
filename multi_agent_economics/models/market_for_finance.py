@@ -674,7 +674,7 @@ def greedy_budget_choice(offers, V, B):
 def choice_model(buyer_state, offers, config, model_state):
     """Dispatches to the appropriate choice model based on configuration."""
     # Calculate value of each offer to the buyer using canonical attribute ordering
-    V = lambda offer: numpy.dot(buyer_state.attr_weights, 
+    V = lambda offer: numpy.dot(buyer_state.attr_weights[model_state.knowledge_good_forecasts[offer.good_id].sector], 
                                 convert_marketing_to_features(offer.marketing_attributes, 
                                                               buyer_state.buyer_conversion_function,
                                                               model_state.attribute_order))
@@ -836,19 +836,24 @@ def update_buyer_preferences_from_knowledge_goods(buyer_state, model_state, obs_
         
         if good_id not in offer_lookup:
             continue
-            
+        
+        # Retrieve sector
+        sector = model_state.knowledge_good_forecasts[good_id].sector
+
         offer = offer_lookup[good_id]
         x = convert_marketing_to_features(offer.marketing_attributes, 
                                           buyer_state.buyer_conversion_function,
                                           model_state.attribute_order)
         # Bayesian update: economic_impact ≈ x·β + noise, noise~N(0,obs_noise_var)
         # This assumes the economic impact can be linearly attributed to attributes
+        attr_mu = buyer_state.attr_mu.get(sector, [0.0] * len(x))
+        attr_sigma2 = buyer_state.attr_sigma2.get(sector, [1.0] * len(x))
         for j, x_j in enumerate(x):
-            if j >= len(buyer_state.attr_mu) or j >= len(buyer_state.attr_sigma2):
+            if j >= len(attr_mu) or j >= len(attr_sigma2):
                 continue  # Skip if buyer doesn't have preferences for this attribute
                 
             # Prior precision τ0 and likelihood precision τL
-            τ0 = 1 / buyer_state.attr_sigma2[j]
+            τ0 = 1 / attr_sigma2[j]
             τL = x_j**2 / obs_noise_var if x_j != 0 else 0
             
             if τL == 0:  # Skip zero attributes
@@ -856,17 +861,29 @@ def update_buyer_preferences_from_knowledge_goods(buyer_state, model_state, obs_
                 
             # Posterior precision & mean
             τ_post = τ0 + τL
-            μ_post = (τ0 * buyer_state.attr_mu[j] + x_j * economic_impact / obs_noise_var) / τ_post
+            μ_post = (τ0 * attr_mu[j] + x_j * economic_impact / obs_noise_var) / τ_post
 
-            buyer_state.attr_sigma2[j] = 1 / τ_post
-            buyer_state.attr_mu[j] = μ_post
+            buyer_state.attr_sigma2[sector][j] = 1 / τ_post
+            buyer_state.attr_mu[sector][j] = μ_post
 
 def transition_demand(model, market_cfg):
     """Update buyer preferences based on knowledge good performance."""
     for buyer_state in model.state.buyers_state:
         # Use the new knowledge good impact-based preference updating
         update_buyer_preferences_from_knowledge_goods(buyer_state, model.state)
-        
+        # Use new attr_mu and attr_sigma2 to update buyer preferences per sector
+        # This will affect the next round's choice model inputs. Sampled from
+        # normal distribution.
+        for sector in model.state.current_regimes.keys():
+            buyer_state.attr_weights[sector] = [0.0] * len(model.state.attribute_order)
+            attr_mu = buyer_state.attr_mu.get(sector, [0.0] * len(model.state.attribute_order))
+            attr_sigma2 = buyer_state.attr_sigma2.get(sector, [1.0] * len(model.state.attribute_order))
+            for j in range(len(model.state.attribute_order)):
+                buyer_state.attr_weights[sector][j] = numpy.random.normal(
+                    loc=attr_mu[j],
+                    scale=numpy.sqrt(attr_sigma2[j])
+                )
+
         # TODO: Add novel demand shocks from market_cfg if needed in the future
         # For now, focusing on preference learning from knowledge good impacts
 

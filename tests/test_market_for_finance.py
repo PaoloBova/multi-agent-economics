@@ -129,7 +129,7 @@ class TestMarketForFinance:
             good_id="tech_forecast_001",
             price=50.0,
             seller="analyst_001", 
-            attr_vector=[0.8, 0.2]  # High quality, low cost methodology
+            marketing_attributes={"innovation_level": "high", "data_source": "internal"}  # High quality, low cost methodology
         )
         
         # Add explicit forecast
@@ -252,8 +252,10 @@ class TestMarketForFinance:
         )
         
         # Create two knowledge goods
-        forecast1 = Offer(good_id="forecast_1", price=30.0, seller="analyst_1", attr_vector=[0.6])
-        forecast2 = Offer(good_id="forecast_2", price=40.0, seller="analyst_2", attr_vector=[0.8])
+        forecast1 = Offer(good_id="forecast_1", price=30.0, seller="analyst_1", 
+                         marketing_attributes={"innovation_level": "medium", "data_source": "internal"})
+        forecast2 = Offer(good_id="forecast_2", price=40.0, seller="analyst_2", 
+                         marketing_attributes={"innovation_level": "high", "data_source": "internal"})
         
         # Both predict bull market with different confidence
         market_state.knowledge_good_forecasts.update({
@@ -434,7 +436,8 @@ class TestMarketForFinance:
         market_state = MarketState(
             prices={},
             offers=[
-                Offer(good_id="kg_test", price=50.0, seller="analyst", attr_vector=[0.8, 0.4])
+                Offer(good_id="kg_test", price=50.0, seller="analyst", 
+                      marketing_attributes={"innovation_level": "high", "data_source": "internal"})
             ],
             trades=[],
             demand_profile={},
@@ -482,7 +485,7 @@ class TestMarketForFinance:
             f"Attr 1 variance: expected {expected_sigma2_attr1}, got {buyer_state.attr_sigma2[1]}"
         
         print(f"✓ Demand transition Bayesian updates test passed")
-        print(f"  Knowledge good: attr_vector=[0.8, 0.4], economic_impact=60.0")
+        print(f"  Knowledge good: marketing_attributes={{'innovation_level': 'high', 'data_source': 'internal'}}, economic_impact=60.0")
         print(f"  Attr 0: μ {0.5:.6f} → {buyer_state.attr_mu[0]:.6f} (expected: {expected_mu_attr0:.6f})")
         print(f"  Attr 0: σ² {0.1:.6f} → {buyer_state.attr_sigma2[0]:.6f} (expected: {expected_sigma2_attr0:.6f})")
         print(f"  Attr 1: μ {0.3:.6f} → {buyer_state.attr_mu[1]:.6f} (expected: {expected_mu_attr1:.6f})")
@@ -505,7 +508,8 @@ class TestMarketForFinance:
         market_state = MarketState(
             prices={},
             offers=[
-                Offer(good_id="kg_terrible", price=100.0, seller="bad_analyst", attr_vector=[0.9, 0.7])  # High attributes
+                Offer(good_id="kg_terrible", price=100.0, seller="bad_analyst", 
+                      marketing_attributes={"innovation_level": "high", "data_source": "proprietary"})  # High attributes
             ],
             trades=[],
             demand_profile={},
@@ -577,7 +581,7 @@ class TestMarketForFinance:
         assert buyer_state.attr_sigma2[1] < initial_sigma2_1, "Attr 1 variance should decrease"
         
         print(f"✓ Demand transition poor forecast performance test passed")
-        print(f"  Knowledge good: attr_vector=[0.9, 0.7], economic_impact=-120.0")
+        print(f"  Knowledge good: marketing_attributes={{'innovation_level': 'high', 'data_source': 'proprietary'}}, economic_impact=-120.0")
         print(f"  Attr 0: μ {initial_mu_0:.6f} → {buyer_state.attr_mu[0]:.6f} (drop: {drop_attr0:.6f})")
         print(f"  Attr 0: σ² {initial_sigma2_0:.6f} → {buyer_state.attr_sigma2[0]:.6f}")
         print(f"  Attr 1: μ {initial_mu_1:.6f} → {buyer_state.attr_mu[1]:.6f} (drop: {drop_attr1:.6f})")

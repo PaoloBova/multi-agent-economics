@@ -111,7 +111,7 @@ def demo_forecasting_tools():
     print("\n   Economic value of forecasting quality:")
     for tier in tiers:
         f = forecasts[tier]
-        attr_component = f['attr_vector_component']
+        attr_component = f['forecast_attribute_value']
         print(f"   {tier.upper():>4} tier: Attribute value = {attr_component:.3f} "
               f"(quality × accuracy = {f['forecast_quality']:.1f} × {f['regime_accuracy']:.1f})")
     

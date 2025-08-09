@@ -7,7 +7,6 @@ tool wrapper code, making them easier to test, modify, and maintain.
 
 from .economic import (
     sector_forecast_impl,
-    monte_carlo_var_impl,
     post_to_market_impl
 )
 
@@ -21,7 +20,6 @@ from .artifacts import (
 __all__ = [
     # Economic implementations
     'sector_forecast_impl',
-    'monte_carlo_var_impl', 
     'post_to_market_impl',
     
     # Artifact implementations

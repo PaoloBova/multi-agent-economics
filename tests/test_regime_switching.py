@@ -300,7 +300,7 @@ class TestMarketIntegration:
             assert "predicted_regime" in forecast
             assert "true_regime" in forecast
             assert "regime_accuracy" in forecast
-            assert "attr_vector_component" in forecast
+            assert "forecast_attribute_value" in forecast
             assert forecast["predicted_regime"] in [0, 1]
             assert forecast["true_regime"] in [0, 1]
     

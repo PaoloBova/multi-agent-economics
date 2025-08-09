@@ -20,23 +20,6 @@ class SectorForecastResponse(BaseModel):
     quality_tier: Literal["low", "medium", "high"] = Field(..., description="Quality tier based on effort")
     effort_used: float = Field(..., description="Actual effort used after budget constraints", ge=0)
 
-
-class MonteCarloVarResponse(BaseModel):
-    """Response model for Monte Carlo VaR tool."""
-    portfolio_value: float = Field(..., description="Portfolio value analyzed", gt=0)
-    volatility: float = Field(..., description="Portfolio volatility used", ge=0)
-    confidence_level: float = Field(..., description="Confidence level for VaR calculation", ge=0, le=1)
-    var_estimate: float = Field(..., description="Value at Risk estimate", ge=0)
-    expected_shortfall: float = Field(..., description="Expected shortfall (CVaR)", ge=0)
-    max_loss: float = Field(..., description="Maximum simulated loss", ge=0)
-    expected_loss: float = Field(..., description="Expected loss from simulation")
-    n_simulations: int = Field(..., description="Number of simulations performed", gt=0)
-    quality_tier: Literal["low", "medium", "high"] = Field(..., description="Quality tier based on effort")
-    effort_requested: float = Field(..., description="Originally requested effort level", ge=0)
-    effort_used: float = Field(..., description="Actual effort used after budget constraints", ge=0)
-    warnings: List[str] = Field(default_factory=list, description="Any warnings or constraints applied")
-
-
 class PostToMarketResponse(BaseModel):
     """Response model for structured note pricing tool."""
     notional: float = Field(..., description="Notional amount of the note", gt=0)
@@ -67,6 +50,16 @@ class HistoricalPerformanceResponse(BaseModel):
     effort_used: float = Field(..., description="Actual effort used after budget constraints", ge=0)
     warnings: List[str] = Field(default_factory=list, description="Any warnings or data limitations")
     data_quality: Optional[str] = Field(None, description="Assessment of underlying data quality")
+    
+    # Marketing attribute analysis
+    marketing_attribute_analysis: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict, 
+        description="Analysis of performance by marketing attribute combinations"
+    )
+    top_performing_attributes: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Marketing attribute combinations with highest performance"
+    )
 
 
 class BuyerPreferenceResponse(BaseModel):
@@ -81,6 +74,16 @@ class BuyerPreferenceResponse(BaseModel):
     effort_used: float = Field(..., description="Actual effort used after budget constraints", ge=0)
     warnings: List[str] = Field(default_factory=list, description="Any warnings or data limitations")
     data_quality: Optional[str] = Field(None, description="Assessment of underlying data quality")
+    
+    # Marketing attribute interpretation
+    marketing_preference_interpretation: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Interpretation of buyer preferences in terms of marketing attributes"
+    )
+    buyer_heterogeneity: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Analysis of how different buyers value the same marketing attributes"
+    )
 
 
 class CompetitivePricingResponse(BaseModel):
@@ -95,6 +98,16 @@ class CompetitivePricingResponse(BaseModel):
     effort_used: float = Field(..., description="Actual effort used after budget constraints", ge=0)
     warnings: List[str] = Field(default_factory=list, description="Any warnings or data limitations")
     data_quality: Optional[str] = Field(None, description="Assessment of underlying data quality")
+    
+    # Marketing attribute-based pricing analysis
+    pricing_by_marketing_attributes: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Price analysis segmented by marketing attribute combinations"
+    )
+    attribute_price_premiums: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Price premiums associated with different marketing attribute values"
+    )
 
 
 # Artifact Tool Response Schemas
