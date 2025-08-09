@@ -711,7 +711,7 @@ def clear_market(choices, _model, config):
                 seller_id=offer.seller,  # Use seller field from Offer
                 price=offer.price,
                 quantity=1,  # Default quantity
-                good_id=offer.good_id
+                good_id=offer.good_id,
                 period=_model.state.current_period
             )
             trades.append(trade)

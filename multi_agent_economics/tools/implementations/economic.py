@@ -194,7 +194,7 @@ def analyze_historical_performance_impl(
     sector_trades = [t for t in all_trades 
                     if hasattr(t, 'good_id') and t.good_id in state.knowledge_good_forecasts
                     and state.knowledge_good_forecasts[t.good_id].sector == sector]
-    sampled_trades = np.random.choice(sector_trades, size=max_trades, replace=False).tolist()
+    sampled_trades = np.random.choice(sector_trades, size=min(max_trades, len(sector_trades)), replace=False).tolist()
     # Apply noise based on effort quality (simulate data imperfections)
     trade_data = []
     for trade in sampled_trades:
