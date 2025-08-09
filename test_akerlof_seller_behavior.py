@@ -112,9 +112,9 @@ def buyers_with_preferences(market_state):
         BuyerState(
             buyer_id="buyer_1",
             regime_beliefs={"tech": [0.6, 0.4]},  # Moderately bullish
-            attr_mu=[0.8, 0.6],                   # High quality preference
-            attr_sigma2=[0.1, 0.1],               # Low uncertainty
-            attr_weights=[0.8, 0.6],              # Current weights match means
+            attr_mu={"tech": [0.8, 0.6]},                   # High quality preference
+            attr_sigma2={"tech": [0.1, 0.1]},               # Low uncertainty
+            attr_weights={"tech": [0.8, 0.6]},              # Current weights match means
             budget=200.0,
             buyer_conversion_function={
                 "innovation_level": {"high": 0.9, "medium": 0.6, "low": 0.2},
@@ -124,9 +124,9 @@ def buyers_with_preferences(market_state):
         BuyerState(
             buyer_id="buyer_2",
             regime_beliefs={"tech": [0.3, 0.7]},  # Bearish
-            attr_mu=[0.4, 0.5],                   # Lower quality preference  
-            attr_sigma2=[0.2, 0.15],              # Higher uncertainty
-            attr_weights=[0.4, 0.5],              # Current weights match means
+            attr_mu={"tech": [0.4, 0.5]},                   # Lower quality preference  
+            attr_sigma2={"tech": [0.2, 0.15]},              # Higher uncertainty
+            attr_weights={"tech": [0.4, 0.5]},              # Current weights match means
             budget=150.0,
             buyer_conversion_function={
                 "innovation_level": {"high": 0.4, "medium": 0.5, "low": 0.3},

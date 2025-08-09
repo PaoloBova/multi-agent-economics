@@ -221,8 +221,9 @@ class AkerlofSeller:
             This method assumes the seller has already produced the good
             and is now deciding how to market it.
         """
-        # Extract buyer preferences for optimal attribute selection
-        avg_buyer_prefs = self.extract_buyer_preferences()
+        # Extract buyer preferences for optimal attribute selection (sector-specific)
+        sector = self.context.get('sector', 'tech')  # Get seller's sector
+        avg_buyer_prefs = self.extract_buyer_preferences(sector)
         
         # Choose attribute claims (can be independent of true quality - asymmetric info!)
         # For now, use a simple strategy: claim high attributes if profitable
@@ -236,24 +237,43 @@ class AkerlofSeller:
         
         return offer
         
-    def extract_buyer_preferences(self) -> List[float]:
+    def extract_buyer_preferences(self, sector: Optional[str] = None) -> List[float]:
         """
-        Extract average buyer preferences from market state.
+        Extract average buyer preferences from market state for a specific sector.
+        
+        Args:
+            sector: Sector to extract preferences for (defaults to seller's sector)
         
         Returns:
-            List of average attribute preferences across all buyers
+            List of average attribute preferences across all buyers for the sector
         """
+        if sector is None:
+            sector = self.context.get('sector', 'tech')  # Use seller's sector
+            
         if not self.market_state.buyers_state:
             # Get default preferences from context
             default_prefs = self.context.get('default_buyer_preferences', [0.5, 0.5])
             return default_prefs
+        
+        # Get attribute order for consistent vector length
+        attribute_order = getattr(self.market_state, 'attribute_order', [])
+        if not attribute_order:
+            default_prefs = self.context.get('default_buyer_preferences', [0.5, 0.5])
+            return default_prefs
+        
+        # Extract sector-specific preferences from buyers
+        all_prefs = []
+        for buyer in self.market_state.buyers_state:
+            # Ensure buyer has preferences for this sector
+            if hasattr(buyer, 'ensure_sector_exists'):
+                buyer.ensure_sector_exists(sector, len(attribute_order))
             
-        # Calculate average preferences across all buyers
-        all_prefs = [buyer.attr_mu for buyer in self.market_state.buyers_state if buyer.attr_mu]
+            if hasattr(buyer, 'attr_mu') and sector in buyer.attr_mu:
+                all_prefs.append(buyer.attr_mu[sector])
         
         if not all_prefs:
             # Get default preferences from context
-            default_prefs = self.context.get('default_buyer_preferences', [0.5, 0.5])
+            default_prefs = self.context.get('default_buyer_preferences', [0.5] * len(attribute_order))
             return default_prefs
             
         # Average across buyers and attributes
@@ -320,7 +340,8 @@ class AkerlofSeller:
         if not competition:
             # No competition - price based on buyer willingness-to-pay
             wtp_pricing_factor = self.context.get('wtp_pricing_factor', 0.9)  # Default 90% of WTP
-            avg_prefs = self.extract_buyer_preferences()
+            sector = self.context.get('sector', 'tech')  # Get seller's sector
+            avg_prefs = self.extract_buyer_preferences(sector)
             # Convert marketing attributes to average attribute vector for WTP calculation
             avg_attrs = get_average_attribute_vector(marketing_attrs, self.market_state.buyers_state, self.market_state.attribute_order)
             wtp = self._estimate_willingness_to_pay_for_attrs(avg_attrs, avg_prefs)
@@ -359,7 +380,8 @@ class AkerlofSeller:
         Returns:
             Estimated willingness-to-pay
         """
-        avg_prefs = self.extract_buyer_preferences()
+        sector = self.context.get('sector', 'tech')  # Get seller's sector
+        avg_prefs = self.extract_buyer_preferences(sector)
         # Get scaling factor from context for realistic pricing
         wtp_scaling_factor = self.context.get('wtp_scaling_factor', 100.0)  # Default 100x scaling
         return self._estimate_willingness_to_pay_for_attrs(attrs, avg_prefs) * wtp_scaling_factor
@@ -393,7 +415,8 @@ class AkerlofSeller:
             return avg_competitor_price * competitor_discount
         else:
             # No similar competition - fall back to WTP pricing
-            return self._estimate_willingness_to_pay(attrs)
+            avg_attrs = get_average_attribute_vector(marketing_attrs, self.market_state.buyers_state, self.market_state.attribute_order)
+            return self._estimate_willingness_to_pay(avg_attrs)
             
     def calculate_attribute_similarity(self, marketing_attrs1: Dict, marketing_attrs2: Dict) -> float:
         """
