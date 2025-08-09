@@ -14,7 +14,7 @@ from ..schemas import (
 from ...models.market_for_finance import (
     ForecastData, Offer, build_confusion_matrix, generate_forecast_signal, 
     transition_regimes, categorical_draw, get_marketing_attribute_description,
-    convert_marketing_to_features
+    convert_marketing_to_features, choice_model
 )
 
 
@@ -368,7 +368,7 @@ def analyze_buyer_preferences_impl(
         for data in wtp_data:
             offer = data["offer"]
             wtp = data["willingness_to_pay"]
-            for attr_idx, attr_name in enumerate(attribute_order):
+            for _, attr_name in enumerate(attribute_order):
                 if attr_name not in attribute_importance:
                     attribute_importance[attr_name] = []
                 # Convert marketing attribute to numerical feature value using buyer's conversion function
@@ -377,7 +377,7 @@ def analyze_buyer_preferences_impl(
                 feature_vector = convert_marketing_to_features(
                     single_attr_dict, buyer.buyer_conversion_function, [attr_name]
                 )
-                feature_value = feature_vector[attr_idx] if feature_vector else 0.5
+                feature_value = feature_vector[0] if feature_vector else 0.0
                 attribute_importance[attr_name].append(feature_value * wtp)
         # Rank attributes by average WTP
         top_attributes = sorted(
@@ -438,7 +438,7 @@ def research_competitive_pricing_impl(
     config_data: Dict[str, Any],
     sector: str,
     effort: float,
-    marketing_attributes: Optional[Dict[str, Any]] = None
+    marketing_attributes: Dict[str, Any] = None
 ) -> CompetitivePricingResponse:
     """
     Research competitive pricing by simulating market share against real competitors.
@@ -460,19 +460,19 @@ def research_competitive_pricing_impl(
     effort_thresholds = tool_params.get("effort_thresholds", {"high": 2.5, "medium": 1.2})
     if effort >= effort_thresholds.get("high", 2.5):
         quality_tier = "high"
-        num_buyers = 30
-        price_points = 12
-        lookback_trades = 50
+        num_buyers = tool_params.get("high_effort_num_buyers", 30)
+        price_points = tool_params.get("high_effort_price_points", 12)
+        lookback_trades = tool_params.get("high_effort_lookback_trades", 50)
     elif effort >= effort_thresholds.get("medium", 1.2):
         quality_tier = "medium"
-        num_buyers = 15
-        price_points = 6
-        lookback_trades = 20
+        num_buyers = tool_params.get("medium_effort_num_buyers", 15)
+        price_points = tool_params.get("medium_effort_price_points", 6)
+        lookback_trades = tool_params.get("medium_effort_lookback_trades", 20)
     else:
         quality_tier = "low"
-        num_buyers = 8
-        price_points = 4
-        lookback_trades = 10
+        num_buyers = tool_params.get("low_effort_num_buyers", 8)
+        price_points = tool_params.get("low_effort_price_points", 4)
+        lookback_trades = tool_params.get("low_effort_lookback_trades", 10) 
     
     # Get current competitive landscape from recent trades/offers
     all_trades = getattr(state, 'all_trades', [])
@@ -493,7 +493,7 @@ def research_competitive_pricing_impl(
         return CompetitivePricingResponse(
             sector=sector,
             price_simulations=[],
-            recommended_price=0.0,  # No competitive data available
+            recommended_price=0.0,
             quality_tier=quality_tier,
             effort_used=effort,
             warnings=warnings,
@@ -533,26 +533,8 @@ def research_competitive_pricing_impl(
     
     attribute_order = getattr(state, 'attribute_order', [])
     
-    # Filter buyers by sector (those who have preferences for this sector)
-    sector_buyers = [buyer for buyer in all_buyers 
-                     if hasattr(buyer, 'attr_mu') and sector in buyer.attr_mu]
-    
-    # Sample from sector-relevant buyers
-    if sector_buyers:
-        sampled_buyers = np.random.choice(sector_buyers, 
-                                        size=min(num_buyers, len(sector_buyers)), replace=False)
-    else:
-        # Fallback: use all buyers but ensure they have sector preferences
-        sampled_buyers = np.random.choice(all_buyers, 
-                                        size=min(num_buyers, len(all_buyers)), replace=False)
-        for buyer in sampled_buyers:
-            buyer.ensure_sector_exists(sector, len(attribute_order))
-    
-    # Use provided attributes or generate typical ones
-    if marketing_attributes is None:
-        marketing_definitions = getattr(state, 'marketing_attribute_definitions', {})
-        marketing_attributes = generate_typical_attributes(attribute_order, marketing_definitions)
-    
+    sampled_buyers = np.random.choice(all_buyers, size=min(num_buyers, len(all_buyers)), replace=False)
+
     # Determine price range from competitive landscape
     competitor_prices = [o.price for o in competitor_offers]
     if competitor_prices:
@@ -568,10 +550,7 @@ def research_competitive_pricing_impl(
     # Test different price points
     test_prices = np.linspace(price_range[0], price_range[1], price_points)
     price_simulations = []
-    
-    # Configure choice model simulation
-    from ...models.market_for_finance import choice_model
-    
+
     # Create mock config for choice model
     choice_config = type('Config', (), {
         'choice_model': config_data.get('choice_model', 'greedy'),
@@ -606,7 +585,6 @@ def research_competitive_pricing_impl(
                     if chosen_offer.good_id == candidate_offer.good_id:
                         our_purchases += 1
                         # Calculate buyer's value for our offer
-                        from ...models.market_for_finance import convert_marketing_to_features
                         features = convert_marketing_to_features(
                             marketing_attributes,
                             buyer.buyer_conversion_function,
@@ -623,7 +601,6 @@ def research_competitive_pricing_impl(
         # Calculate competitive metrics
         market_share = our_purchases / len(sampled_buyers) if len(sampled_buyers) > 0 else 0
         capture_rate = our_purchases / total_purchases if total_purchases > 0 else 0
-        avg_buyer_value = total_buyer_value / our_purchases if our_purchases > 0 else 0
         expected_revenue = our_purchases * price
         
         price_simulations.append({
@@ -632,7 +609,6 @@ def research_competitive_pricing_impl(
             "capture_rate": float(capture_rate),
             "buyers_purchasing": int(our_purchases),
             "total_market_purchases": int(total_purchases),
-            "avg_buyer_value": float(avg_buyer_value),
             "expected_revenue": float(expected_revenue),
             "competitive_position": "premium" if price > avg_comp_price * 1.1 else 
                                    "discount" if price < avg_comp_price * 0.9 else "competitive"

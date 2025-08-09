@@ -955,11 +955,15 @@ def run_information_dynamics(model, info_cfg):
 
 def model_step(model, config):
     "Top‑level model step, invoked once per tick (round)"
-    run_market_dynamics(model, config.market_params)
-    run_information_dynamics(model, config.info_params)
-    # TODO: Handle stochastic arrival of news or shocks
-    # allocate_budgets(model, config.budget_params)
-    model.state.current_period += 1
+    
+    if model.state.current_period  <= len(model.state.regime_history):
+        run_market_dynamics(model, config.market_params)
+        run_information_dynamics(model, config.info_params)
+        # TODO: Handle stochastic arrival of news or shocks
+        # allocate_budgets(model, config.budget_params)
+        model.state.current_period += 1
+    else:
+       print("Current period exceeds regime history length. Check model setup. Model step skipped.")
 
 def collect_stats(model):
     "Collect statistics from the model state"
@@ -1071,8 +1075,6 @@ class MarketState(BaseModel):
     """ Represents the state of a market in the simulation framework."""
     offers: list[Offer] = Field(..., description="List of offers available in the market")
     trades: list[TradeData] = Field(..., description="List of trades executed in the market")
-    demand_profile: dict = Field(..., description="Demand profile for the market")
-    supply_profile: dict = Field(..., description="Supply profile for the market")
     index_values: dict[str, float] = Field(..., description="Values of market indices")
     
     # Regime-switching state
@@ -1084,8 +1086,7 @@ class MarketState(BaseModel):
     # Agent beliefs and forecasting
     agent_beliefs: dict[str, list[float]] = Field(default_factory=dict, description="Agent beliefs about regimes")
     agent_subjective_transitions: dict = Field(default_factory=dict, description="Agent subjective transition matrices")
-    forecast_history: list = Field(default_factory=list, description="History of forecasts and their accuracy")
-    
+
     # Additional tracking
     all_trades: list = Field(default_factory=list, description="Complete history of all trades")
     buyers_state: list = Field(default_factory=list, description="State of buyer agents")
@@ -1096,16 +1097,13 @@ class MarketState(BaseModel):
     current_period: int = Field(default=0, description="Current simulation time step", ge=0)
     knowledge_good_impacts: dict[str, dict[str, float]] = Field(default_factory=dict, description="Impact of knowledge goods on buyer profits")
     knowledge_good_forecasts: dict[str, ForecastData] = Field(default_factory=dict, description="Mapping good_id -> forecast data")
-    
-    # Market research data
-    performance_mapping: dict[str, float] = Field(default_factory=dict, description="Mapping good_id -> actual performance level for market research")
-    
+
     # Marketing attribute system - global definitions
     marketing_attribute_definitions: dict[str, dict[str, Any]] = Field(
         default_factory=dict, 
         description="Global definitions of available marketing attributes and their valid values"
     )
-    
+
     # Canonical ordering for consistent attribute vector generation
     attribute_order: list[str] = Field(
         default_factory=list,
