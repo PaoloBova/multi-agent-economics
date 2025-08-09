@@ -204,7 +204,7 @@ def analyze_historical_performance_impl(
             "buyer_id": trade.buyer_id,
             "seller_id": trade.seller_id,
             "marketing_attributes": trade.marketing_attributes,
-            "current_period": trade.current_period
+            "period": trade.period
         }
         trade_data.append(trade_record)
     
