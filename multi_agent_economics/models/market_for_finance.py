@@ -712,6 +712,7 @@ def clear_market(choices, _model, config):
                 price=offer.price,
                 quantity=1,  # Default quantity
                 good_id=offer.good_id
+                period=_model.state.current_period
             )
             trades.append(trade)
     else:
@@ -958,6 +959,7 @@ def model_step(model, config):
     run_information_dynamics(model, config.info_params)
     # TODO: Handle stochastic arrival of news or shocks
     # allocate_budgets(model, config.budget_params)
+    model.state.current_period += 1
 
 def collect_stats(model):
     "Collect statistics from the model state"
@@ -1000,6 +1002,7 @@ class TradeData(BaseModel):
         default_factory=dict,
         description="Buyer's converted numeric features used in choice model"
     )
+    period: int = Field(..., description="Period in which the trade occurred", ge=0)
     
 class Offer(BaseModel):
     """ Represents an offer in the market."""
@@ -1016,9 +1019,9 @@ class BuyerState(BaseModel):
     buyer_id: str = Field(..., description="Unique identifier for the buyer")
     regime_beliefs: dict[str, list[float]] = Field(..., description="Beliefs about regime probabilities by sector")
     risk_aversion: float = Field(default=2.0, description="Risk aversion parameter", gt=0)
-    attr_mu: list[float] = Field(default_factory=list, description="Mean preferences for each attribute")
-    attr_sigma2: list[float] = Field(default_factory=list, description="Variance of preferences for each attribute")
-    attr_weights: list[float] = Field(default_factory=list, description="Current attribute weights for utility calculation")
+    attr_mu: dict[str, list[float]] = Field(default_factory=dict, description="Mean preferences for each attribute by sector")
+    attr_sigma2: dict[str, list[float]] = Field(default_factory=dict, description="Variance of preferences for each attribute by sector")
+    attr_weights: dict[str, list[float]] = Field(default_factory=dict, description="Current attribute weights for utility calculation by sector")
     budget: float = Field(default=100.0, description="Available budget for purchases", ge=0)
     # TODO: Should budget update dynamically based on trades and expectations?
     surplus: float = Field(default=0.0, description="Current period surplus")
@@ -1029,6 +1032,33 @@ class BuyerState(BaseModel):
         default_factory=dict,
         description="Buyer's personal conversion from marketing attributes to numeric features"
     )
+    
+    def initialize_sector_preferences(self, sectors: list[str], num_attributes: int, 
+                                    default_mu: float = 0.5, default_sigma2: float = 1.0):
+        """Initialize sector-specific attribute preferences for this buyer."""
+        for sector in sectors:
+            if sector not in self.attr_mu:
+                self.attr_mu[sector] = [default_mu] * num_attributes
+            if sector not in self.attr_sigma2:
+                self.attr_sigma2[sector] = [default_sigma2] * num_attributes
+            if sector not in self.attr_weights:
+                # Sample initial weights from prior
+                self.attr_weights[sector] = [
+                    np.random.normal(default_mu, np.sqrt(default_sigma2)) 
+                    for _ in range(num_attributes)
+                ]
+    
+    def ensure_sector_exists(self, sector: str, num_attributes: int):
+        """Ensure a sector exists in buyer preferences, adding with defaults if not."""
+        if sector not in self.attr_mu:
+            self.attr_mu[sector] = [0.5] * num_attributes
+        if sector not in self.attr_sigma2:
+            self.attr_sigma2[sector] = [1.0] * num_attributes  
+        if sector not in self.attr_weights:
+            self.attr_weights[sector] = [
+                np.random.normal(self.attr_mu[sector][i], np.sqrt(self.attr_sigma2[sector][i]))
+                for i in range(num_attributes)
+            ]
 
 class SellerState(BaseModel):
     """State of a seller agent in the market."""
