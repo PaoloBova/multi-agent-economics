@@ -21,93 +21,45 @@ class SectorForecastResponse(BaseModel):
     effort_used: float = Field(..., description="Actual effort used after budget constraints", ge=0)
 
 class PostToMarketResponse(BaseModel):
-    """Response model for structured note pricing tool."""
-    notional: float = Field(..., description="Notional amount of the note", gt=0)
-    payoff_type: str = Field(..., description="Type of payoff structure")
-    fair_value: float = Field(..., description="Calculated fair value", ge=0)
-    quoted_price: float = Field(..., description="Final quoted price with error adjustment", ge=0)
-    pricing_error: float = Field(..., description="Pricing error applied based on quality")
-    pricing_accuracy: float = Field(..., description="Pricing accuracy metric", ge=0, le=1)
-    expected_return: float = Field(..., description="Expected return used in calculation")
-    discount_rate: float = Field(..., description="Discount rate used", ge=0)
-    quality_tier: Literal["low", "medium", "high"] = Field(..., description="Quality tier based on effort")
-    effort_requested: float = Field(..., description="Originally requested effort level", ge=0)
-    effort_used: float = Field(..., description="Actual effort used after budget constraints", ge=0)
-    warnings: List[str] = Field(default_factory=list, description="Any warnings or constraints applied")
+    """Response model for posting offers to market."""
+    offer: Any = Field(..., description="The Offer object that was posted to the market") 
+    status: Literal["success", "error"] = Field(..., description="Operation status")
+    message: str = Field(..., description="Human-readable status message")
 
 
 # Market Research Tool Response Schemas
 
 class HistoricalPerformanceResponse(BaseModel):
-    """Response model for historical performance analysis tool."""
+    """Response model for historical performance analysis tool - returns raw trade data."""
     sector: str = Field(..., description="Sector that was analyzed")
-    performance_tiers: Dict[str, Dict[str, Any]] = Field(..., description="Performance tier analysis with revenue patterns")
-    revenue_patterns: Dict[str, List[float]] = Field(..., description="Revenue patterns by performance level")
-    analysis_quality: float = Field(..., description="Quality of the analysis performed", ge=0, le=1)
-    sample_size: int = Field(..., description="Number of trades analyzed", ge=0)
-    lookback_periods: int = Field(..., description="Number of periods analyzed", ge=0)
+    trade_data: List[Dict[str, Any]] = Field(..., description="Raw historical trade data for agent analysis")
+    sample_size: int = Field(..., description="Number of trades returned", ge=0)
     quality_tier: Literal["low", "medium", "high"] = Field(..., description="Quality tier based on effort")
     effort_used: float = Field(..., description="Actual effort used after budget constraints", ge=0)
     warnings: List[str] = Field(default_factory=list, description="Any warnings or data limitations")
-    data_quality: Optional[str] = Field(None, description="Assessment of underlying data quality")
-    
-    # Marketing attribute analysis
-    marketing_attribute_analysis: Dict[str, Dict[str, Any]] = Field(
-        default_factory=dict, 
-        description="Analysis of performance by marketing attribute combinations"
-    )
-    top_performing_attributes: List[Dict[str, Any]] = Field(
-        default_factory=list,
-        description="Marketing attribute combinations with highest performance"
-    )
+    recommendation: str = Field(..., description="Brief summary of data available for analysis")
 
 
 class BuyerPreferenceResponse(BaseModel):
     """Response model for buyer preference analysis tool."""
     sector: str = Field(..., description="Sector that was analyzed")
-    avg_preferences: List[float] = Field(..., description="Average buyer preferences for each attribute")
-    preference_distribution: Dict[str, Dict[str, float]] = Field(..., description="Distribution statistics for preferences")
+    top_valued_attributes: List[Dict[str, Any]] = Field(..., description="Top 3 attributes buyers value most, ranked by importance")
     sample_size: int = Field(..., description="Number of buyers analyzed", ge=0)
-    confidence_level: Optional[float] = Field(None, description="Statistical confidence level of results", ge=0, le=1)
-    preference_variance: List[float] = Field(default_factory=list, description="Variance in preferences across buyers")
     quality_tier: Literal["low", "medium", "high"] = Field(..., description="Quality tier based on effort")
     effort_used: float = Field(..., description="Actual effort used after budget constraints", ge=0)
     warnings: List[str] = Field(default_factory=list, description="Any warnings or data limitations")
-    data_quality: Optional[str] = Field(None, description="Assessment of underlying data quality")
-    
-    # Marketing attribute interpretation
-    marketing_preference_interpretation: Dict[str, Dict[str, Any]] = Field(
-        default_factory=dict,
-        description="Interpretation of buyer preferences in terms of marketing attributes"
-    )
-    buyer_heterogeneity: Dict[str, Dict[str, Any]] = Field(
-        default_factory=dict,
-        description="Analysis of how different buyers value the same marketing attributes"
-    )
+    recommendation: str = Field(..., description="Actionable recommendation for attribute focus")
 
 
 class CompetitivePricingResponse(BaseModel):
     """Response model for competitive pricing research tool."""
     sector: str = Field(..., description="Sector that was analyzed")
-    price_statistics: Dict[str, float] = Field(..., description="Statistical summary of competitive prices")
-    competitive_landscape: Dict[str, Any] = Field(..., description="Analysis of competitive dynamics")
-    sample_size: int = Field(..., description="Number of competitive offers analyzed", ge=0)
-    lookback_periods: int = Field(..., description="Number of periods analyzed", ge=0)
-    price_ranges: Dict[str, float] = Field(default_factory=dict, description="Price ranges by competitive segment")
+    price_simulations: List[Dict[str, Any]] = Field(..., description="Competitive simulation results showing market share at different price points")
+    recommended_price: float = Field(..., description="Recommended optimal price based on competitive simulation", ge=0)
     quality_tier: Literal["low", "medium", "high"] = Field(..., description="Quality tier based on effort")
     effort_used: float = Field(..., description="Actual effort used after budget constraints", ge=0)
     warnings: List[str] = Field(default_factory=list, description="Any warnings or data limitations")
-    data_quality: Optional[str] = Field(None, description="Assessment of underlying data quality")
-    
-    # Marketing attribute-based pricing analysis
-    pricing_by_marketing_attributes: Dict[str, Dict[str, Any]] = Field(
-        default_factory=dict,
-        description="Price analysis segmented by marketing attribute combinations"
-    )
-    attribute_price_premiums: Dict[str, float] = Field(
-        default_factory=dict,
-        description="Price premiums associated with different marketing attribute values"
-    )
+    recommendation: str = Field(..., description="Competitive pricing recommendation with market share projections")
 
 
 # Artifact Tool Response Schemas
