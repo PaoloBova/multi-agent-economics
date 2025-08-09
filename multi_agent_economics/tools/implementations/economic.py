@@ -13,7 +13,8 @@ from ..schemas import (
 )
 from ...models.market_for_finance import (
     ForecastData, Offer, build_confusion_matrix, generate_forecast_signal, 
-    transition_regimes, categorical_draw, get_marketing_attribute_description
+    transition_regimes, categorical_draw, get_marketing_attribute_description,
+    convert_marketing_to_features
 )
 
 
@@ -143,7 +144,8 @@ def analyze_historical_performance_impl(
     effort: float
 ) -> HistoricalPerformanceResponse:
     """
-    Analyze historical performance-revenue relationships within a sector.
+    Return historical trade data subset for agent analysis. Effort affects data quantity, 
+    quality, and sector coverage.
     
     Args:
         market_model: Complete market model with state
@@ -152,189 +154,121 @@ def analyze_historical_performance_impl(
         effort: Effort level allocated
     
     Returns:
-        HistoricalPerformanceResponse: Analysis of performance tiers and revenue patterns
+        HistoricalPerformanceResponse: Raw trade data for agent analysis
     """
-    # Extract configuration parameters
     state = market_model.state
     tool_params = config_data.get("tool_parameters", {}).get("analyze_historical_performance", {})
     
-    # Map effort to quality tier and analysis parameters
-    effort_thresholds = tool_params.get("effort_thresholds", {"high": 5.0, "medium": 2.0})
-    lookback_periods_config = tool_params.get("lookback_periods", {"high": 20, "medium": 10, "low": 5})
-    sample_noise_config = tool_params.get("sample_noise", {"high": 0.05, "medium": 0.15, "low": 0.30})
-    
-    if effort >= effort_thresholds.get("high", 5.0):
+    # Map effort to data parameters
+    effort_thresholds = tool_params.get("effort_thresholds", {"high": 3.0, "medium": 1.5})
+    if effort >= effort_thresholds.get("high", 3.0):
         quality_tier = "high"
-        lookback_periods = lookback_periods_config.get("high", 20)
-        noise_factor = sample_noise_config.get("high", 0.05)
-    elif effort >= effort_thresholds.get("medium", 2.0):
+        max_trades = tool_params.get("high_effort_max_trades", 100)
+        noise_factor = tool_params.get("high_effort_noise_factor", 0.05)
+    elif effort >= effort_thresholds.get("medium", 1.5):
         quality_tier = "medium"
-        lookback_periods = lookback_periods_config.get("medium", 10)
-        noise_factor = sample_noise_config.get("medium", 0.15)
+        max_trades = tool_params.get("medium_effort_max_trades", 50)
+        noise_factor = tool_params.get("medium_effort_noise_factor", 0.1)
     else:
         quality_tier = "low"
-        lookback_periods = lookback_periods_config.get("low", 5)
-        noise_factor = sample_noise_config.get("low", 0.30)
-    
-    # Filter trades by sector from historical data (handle sector name abbreviations)
-    all_trades = getattr(state, 'all_trades', [])
-    sector_trades = [trade for trade in all_trades
-                     if market_model.state.knowledge_good_forecasts[trade.good_id].sector == sector]
+        max_trades = tool_params.get("low_effort_max_trades", 20)
+        noise_factor = tool_params.get("low_effort_noise_factor", 0.2)
 
-    # Apply lookback period limitation (simulate data availability based on effort)
-    current_period = getattr(state, 'current_period', 0)
-    min_period = max(0, current_period - lookback_periods)
-    
-    # For testing, we'll use all sector trades but limit sample size based on effort
-    sample_size = min(len(sector_trades), lookback_periods * 2) if sector_trades else 0
-    
+    # Get all historical trades
+    all_trades = getattr(state, 'all_trades', [])
     warnings = []
-    performance_mapping = getattr(state, 'performance_mapping', {})
     
-    if not sector_trades:
-        warnings.append(f"No historical trades found for sector '{sector}'")
+    if not all_trades:
+        warnings.append("No historical trade data available")
         return HistoricalPerformanceResponse(
             sector=sector,
-            performance_tiers={},
-            revenue_patterns={},
-            analysis_quality=0.0,
+            trade_data=[],
             sample_size=0,
-            lookback_periods=lookback_periods,
             quality_tier=quality_tier,
             effort_used=effort,
             warnings=warnings,
-            data_quality="insufficient"
+            recommendation="No historical data available for analysis"
         )
     
-    if not performance_mapping:
-        warnings.append("No performance mapping available - using price-based heuristics")
+    # Primary filtering by sector using knowledge_good_forecasts
+    sector_trades = [t for t in all_trades 
+                    if hasattr(t, 'good_id') and t.good_id in state.knowledge_good_forecasts
+                    and state.knowledge_good_forecasts[t.good_id].sector == sector]
+    sampled_trades = np.random.choice(sector_trades, size=max_trades, replace=False).tolist()
+    # Apply noise based on effort quality (simulate data imperfections)
+    trade_data = []
+    for trade in sampled_trades:
+        trade_record = {
+            "good_id": trade.good_id,
+            "price": float(trade.price * (1 + np.random.normal(0, noise_factor))),  # Add price noise
+            "buyer_id": trade.buyer_id,
+            "seller_id": trade.seller_id,
+            "marketing_attributes": trade.marketing_attributes,
+            "current_period": trade.current_period
+        }
+        trade_data.append(trade_record)
     
-    # Group trades by performance level
-    performance_groups = {"high": [], "medium": [], "low": []}
+    # Generate recommendation based on data availability
+    if trade_data:
+        avg_price = np.mean([t["price"] for t in trade_data])
+        recommendation = f"Found {len(trade_data)} historical trades. Average price: ${avg_price:.2f}. Analyze patterns as needed."
+    else:
+        recommendation = "No relevant historical data found for analysis"
     
-    for trade in sector_trades[:sample_size]:
-        if trade.good_id in performance_mapping:
-            performance = performance_mapping[trade.good_id]
-            # Add noise based on effort quality
-            performance += np.random.normal(0, noise_factor * 0.1)
-            
-            if performance >= 0.8:
-                performance_groups["high"].append(trade)
-            elif performance >= 0.65:
-                performance_groups["medium"].append(trade)
-            else:
-                performance_groups["low"].append(trade)
-        else:
-            # Fallback: use price as performance proxy (higher price = better performance)
-            if trade.price >= 100:
-                performance_groups["high"].append(trade)
-            elif trade.price >= 70:
-                performance_groups["medium"].append(trade)
-            else:
-                performance_groups["low"].append(trade)
-    
-    # Analyze performance tiers
-    performance_tiers = {}
-    revenue_patterns = {}
-    
-    for tier, trades in performance_groups.items():
-        if trades:
-            prices = [trade.price for trade in trades]
-            avg_revenue = np.mean(prices)
-            
-            # Add analysis noise based on effort
-            avg_revenue += np.random.normal(0, avg_revenue * noise_factor)
-            
-            performance_tiers[tier] = {
-                "avg_revenue": float(avg_revenue),
-                "revenue_std": float(np.std(prices)) if len(prices) > 1 else 0.0,
-                "sample_count": len(trades),
-                "confidence": max(0.5, 1.0 - noise_factor)
-            }
-            revenue_patterns[tier] = prices
-    
-    # Calculate analysis quality
-    analysis_quality = max(0.1, 1.0 - noise_factor - (0.1 if len(sector_trades) < 10 else 0.0))
-    
-    if sample_size < 5:
-        warnings.append("Small sample size may reduce analysis reliability")
-    
-    data_quality = "good" if quality_tier == "high" else "fair" if quality_tier == "medium" else "limited"
-    
-    # Marketing attribute analysis
-    marketing_attribute_analysis = {}
-    top_performing_attributes = []
-    marketing_definitions = getattr(state, 'marketing_attribute_definitions', {})
-    
-    if marketing_definitions and any(hasattr(trade, 'marketing_attributes') and trade.marketing_attributes 
-                                   for trade in sector_trades[:sample_size]):
-        # Group trades by marketing attribute combinations
-        # TODO: In future, should convert to numeric and cluster instead,
-        # but only if sufficient effort is allocated.
-        attribute_groups = {}
-        
-        for trade in sector_trades[:sample_size]:
-            if hasattr(trade, 'marketing_attributes') and trade.marketing_attributes:
-                # Create a key from marketing attributes for grouping
-                attr_key = tuple(sorted(trade.marketing_attributes.items()))
-                if attr_key not in attribute_groups:
-                    attribute_groups[attr_key] = []
-                attribute_groups[attr_key].append(trade)
-        
-        # Analyze performance by attribute combinations
-        for attr_key, trades in attribute_groups.items():
-            if len(trades) >= 2:  # Only analyze groups with sufficient data
-                attr_dict = dict(attr_key)
-                prices = [trade.price for trade in trades]
-                avg_price = np.mean(prices)
-                
-                # Add noise based on effort quality
-                avg_price += np.random.normal(0, avg_price * noise_factor)
-                
-                # Get human-readable description
-                descriptions = get_marketing_attribute_description(attr_dict, marketing_definitions)
-                
-                analysis_key = str(descriptions)
-                marketing_attribute_analysis[analysis_key] = {
-                    "avg_revenue": float(avg_price),
-                    "sample_count": len(trades),
-                    "attributes": attr_dict,
-                    "descriptions": descriptions,
-                    "revenue_std": float(np.std(prices)) if len(prices) > 1 else 0.0
-                }
-        
-        # Identify top performing attribute combinations
-        if marketing_attribute_analysis:
-            sorted_attrs = sorted(
-                marketing_attribute_analysis.items(),
-                key=lambda x: x[1]["avg_revenue"],
-                reverse=True
-            )
-            
-            top_performing_attributes = [
-                {
-                    "attributes": item[1]["attributes"],
-                    "descriptions": item[1]["descriptions"], 
-                    "avg_revenue": item[1]["avg_revenue"],
-                    "sample_count": item[1]["sample_count"]
-                }
-                for _, item in sorted_attrs[:3]  # Top 3 combinations
-            ]
+    if len(sampled_trades) < 10:
+        warnings.append("Limited sample size may reduce analysis reliability")
+    if noise_factor > 0.15:
+        warnings.append("Data quality limited by effort level - prices may have significant noise")
     
     return HistoricalPerformanceResponse(
         sector=sector,
-        performance_tiers=performance_tiers,
-        revenue_patterns=revenue_patterns,
-        analysis_quality=analysis_quality,
-        sample_size=sample_size,
-        lookback_periods=lookback_periods,
+        trade_data=trade_data,
+        sample_size=len(trade_data),
         quality_tier=quality_tier,
         effort_used=effort,
         warnings=warnings,
-        data_quality=data_quality,
-        marketing_attribute_analysis=marketing_attribute_analysis,
-        top_performing_attributes=top_performing_attributes
+        recommendation=recommendation
     )
+
+
+def generate_test_offers(sector: str, num_offers: int, attribute_order: List[str], 
+                        marketing_definitions: Dict[str, Any]) -> List:
+    """Generate representative test offers for preference analysis."""
+    from ...models.market_for_finance import Offer
+    
+    test_offers = []
+    for i in range(num_offers):
+        # Create varied marketing attributes
+        marketing_attributes = {}
+        
+        for attr_name in attribute_order:
+            if attr_name in marketing_definitions:
+                attr_def = marketing_definitions[attr_name]
+                attr_type = attr_def.get('type', 'categorical')
+                
+                if attr_type == 'qualitative':
+                    # Pick random value from available options
+                    values = attr_def.get('values', ['low', 'medium', 'high'])
+                    marketing_attributes[attr_name] = np.random.choice(values)
+                elif attr_type == 'numeric':
+                    # Sample from range
+                    attr_range = attr_def.get('range', [0.0, 1.0])
+                    marketing_attributes[attr_name] = np.random.uniform(attr_range[0], attr_range[1])
+                else:
+                    marketing_attributes[attr_name] = 'standard'
+            else:
+                # Default for unknown attributes
+                marketing_attributes[attr_name] = np.random.choice(['low', 'medium', 'high'])
+        
+        offer = Offer(
+            good_id=f"test_{sector}_{i}",
+            price=50.0 + np.random.uniform(-20, 20),  # Vary prices
+            seller="test_seller",
+            marketing_attributes=marketing_attributes
+        )
+        test_offers.append(offer)
+    
+    return test_offers
 
 
 def analyze_buyer_preferences_impl(
@@ -344,7 +278,7 @@ def analyze_buyer_preferences_impl(
     effort: float
 ) -> BuyerPreferenceResponse:
     """
-    Analyze buyer preference patterns within a sector.
+    Analyze buyer preference patterns by sampling buyers and testing their WTP for various offers.
     
     Args:
         market_model: Complete market model with state
@@ -353,430 +287,381 @@ def analyze_buyer_preferences_impl(
         effort: Effort level allocated
     
     Returns:
-        BuyerPreferenceResponse: Analysis of buyer preferences and patterns
+        BuyerPreferenceResponse: Top attributes buyers value most in this sector
     """
-    # Extract configuration parameters
     state = market_model.state
     tool_params = config_data.get("tool_parameters", {}).get("analyze_buyer_preferences", {})
     
-    # Map effort to quality tier and analysis parameters
-    effort_thresholds = tool_params.get("effort_thresholds", {"high": 4.0, "medium": 2.0})
-    sample_sizes_config = tool_params.get("sample_sizes", {"high": 50, "medium": 20, "low": 10})
-    noise_factors_config = tool_params.get("noise_factors", {"high": 0.1, "medium": 0.25, "low": 0.50})
-    
-    if effort >= effort_thresholds.get("high", 4.0):
+    # Map effort to sample sizes
+    effort_thresholds = tool_params.get("effort_thresholds", {"high": 3.0, "medium": 1.5})
+    if effort >= effort_thresholds.get("high", 3.0):
         quality_tier = "high"
-        target_sample_size = sample_sizes_config.get("high", 50)
-        noise_factor = noise_factors_config.get("high", 0.1)
-    elif effort >= effort_thresholds.get("medium", 2.0):
+        num_buyers = tool_params.get("high_effort_num_buyers", 30)
+        num_test_offers = tool_params.get("high_effort_num_test_offers", 12)
+        analyze_by_attribute = tool_params.get("high_effort_analyze_by_attribute", True)
+    elif effort >= effort_thresholds.get("medium", 1.5):
         quality_tier = "medium"
-        target_sample_size = sample_sizes_config.get("medium", 20)
-        noise_factor = noise_factors_config.get("medium", 0.25)
+        num_buyers = tool_params.get("medium_effort_num_buyers", 15)
+        num_test_offers = tool_params.get("medium_effort_num_test_offers", 6)
+        analyze_by_attribute = tool_params.get("medium_effort_analyze_by_attribute", False)
     else:
         quality_tier = "low"
-        target_sample_size = sample_sizes_config.get("low", 10)
-        noise_factor = noise_factors_config.get("low", 0.50)
+        num_buyers = tool_params.get("low_effort_num_buyers", 5)
+        num_test_offers = tool_params.get("low_effort_num_test_offers", 3)
+        analyze_by_attribute = tool_params.get("low_effort_analyze_by_attribute", False)
     
-    # Filter buyers by sector interest (buyers with regime beliefs or trading history in sector)
-    all_buyers = getattr(state, 'buyers_state', [])
-    sector_buyers = []
+    all_buyers = state.buyers_state
+    attribute_order = state.attribute_order
+
+    if len(all_buyers) == 0:
+        return BuyerPreferenceResponse(
+            sector=sector,
+            top_valued_attributes=[],
+            sample_size=0,
+            quality_tier=quality_tier,
+            effort_used=effort,
+            warnings=["No buyers available for analysis"],
+            recommendation="Unable to analyze preferences - no buyers found"
+        )
+
+    # Sample from all buyers
+    sampled_buyers = np.random.choice(all_buyers, size=min(num_buyers, len(all_buyers)), replace=False)
+    for buyer in sampled_buyers:
+        buyer.ensure_sector_exists(sector, len(attribute_order))
+
+    # Generate representative test offers for this sector
+    marketing_definitions = state.marketing_definitions.get(sector, {})
+    test_offers = generate_test_offers(sector, num_test_offers, attribute_order, marketing_definitions)
     
-    for buyer in all_buyers:
-        # Include buyer if they have regime beliefs for this sector or sector-specific ID
-        if (hasattr(buyer, 'regime_beliefs') and sector in buyer.regime_beliefs) or \
-           (hasattr(buyer, 'buyer_id') and sector.lower() in buyer.buyer_id.lower()):
-            sector_buyers.append(buyer)
+    # Calculate WTP for each buyer-offer combination
+    attribute_importance = {}
+    for attr_idx, attr_name in enumerate(attribute_order):
+        attribute_importance[attr_name] = []
+    
+    wtp_data = []
+    for buyer in sampled_buyers:
+        for offer in test_offers:
+            features = convert_marketing_to_features(
+                offer.marketing_attributes, 
+                buyer.buyer_conversion_function,
+                attribute_order
+            )
+            
+            # WTP = sum of (attribute_weight * feature_value)
+            # Choice model typically encourages a purchase if WTP > price
+            wtp = np.dot(buyer.attr_weights.get(sector, [0.5] * len(attribute_order)), features)
+            wtp_data.append({"offer": offer, "willingness_to_pay": wtp})
+    
+    # Add warnings
     
     warnings = []
+    if len(sampled_buyers) < 5:
+        warnings.append("Limited buyer sample size may reduce analysis reliability")
+    if len(test_offers) < 3:
+        warnings.append("Limited offer variety may not capture full preference spectrum")
     
-    if not sector_buyers:
-        warnings.append(f"No buyers found with interest in sector '{sector}'")
-        return BuyerPreferenceResponse(
-            sector=sector,
-            avg_preferences=[0.5, 0.5],  # Default neutral preferences
-            preference_distribution={},
-            sample_size=0,
-            confidence_level=0.0,
-            preference_variance=[],
-            quality_tier=quality_tier,
-            effort_used=effort,
-            warnings=warnings,
-            data_quality="insufficient"
-        )
     
-    # Sample buyers based on effort level
-    sample_size = min(len(sector_buyers), target_sample_size)
-    sampled_buyers = np.random.choice(sector_buyers, size=sample_size, replace=False) if sample_size > 0 else []
+    # Add recommendation
     
-    if sample_size < 3:
-        warnings.append("Small buyer sample may reduce preference accuracy")
-    
-    # Extract preference data
-    all_preferences = []
-    for buyer in sampled_buyers:
-        if hasattr(buyer, 'attr_mu') and buyer.attr_mu:
-            prefs = buyer.attr_mu[:2]  # Take first 2 attributes
-            
-            # Add noise based on effort quality
-            noisy_prefs = [
-                max(0.0, min(1.0, pref + np.random.normal(0, noise_factor * 0.2)))
-                for pref in prefs
-            ]
-            all_preferences.append(noisy_prefs)
-    
-    if not all_preferences:
-        warnings.append("No preference data available from sampled buyers")
-        return BuyerPreferenceResponse(
-            sector=sector,
-            avg_preferences=[0.5, 0.5],
-            preference_distribution={},
-            sample_size=sample_size,
-            confidence_level=0.0,
-            preference_variance=[],
-            quality_tier=quality_tier,
-            effort_used=effort,
-            warnings=warnings,
-            data_quality="limited"
-        )
-    
-    # Calculate average preferences
-    preferences_array = np.array(all_preferences)
-    avg_preferences = np.mean(preferences_array, axis=0).tolist()
-    preference_variance = np.var(preferences_array, axis=0).tolist()
-    
-    # Calculate preference distribution statistics
-    preference_distribution = {}
-    for i, attr_name in enumerate(["methodology", "data_quality"]):
-        attr_preferences = preferences_array[:, i]
-        preference_distribution[attr_name] = {
-            "mean": float(np.mean(attr_preferences)),
-            "std": float(np.std(attr_preferences)),
-            "min": float(np.min(attr_preferences)),
-            "max": float(np.max(attr_preferences))
-        }
-    
-    # Calculate confidence level based on sample size and quality
-    confidence_level = min(0.95, 0.5 + (sample_size / 20) * (1.0 - noise_factor))
-    
-    data_quality = "good" if quality_tier == "high" and sample_size >= 10 else \
-                  "fair" if quality_tier == "medium" else "limited"
-    
-    # Marketing attribute preference analysis
-    marketing_preference_interpretation = {}
-    buyer_heterogeneity = {}
-    marketing_definitions = getattr(state, 'marketing_attribute_definitions', {})
-    
-    if marketing_definitions and sampled_buyers:
-        # Analyze how buyers with different conversion functions value marketing attributes
-        conversion_analysis = {}
-        
-        for buyer in sampled_buyers:
-            if hasattr(buyer, 'marketing_conversion_function') and buyer.marketing_conversion_function:
-                conversion_func_id = getattr(buyer, 'buyer_id', 'unknown')
+    if wtp_data and analyze_by_attribute:
+        # Group by attributes and calculate average WTP
+        for data in wtp_data:
+            offer = data["offer"]
+            wtp = data["willingness_to_pay"]
+            for attr_idx, attr_name in enumerate(attribute_order):
+                if attr_name not in attribute_importance:
+                    attribute_importance[attr_name] = []
+                # Convert marketing attribute to numerical feature value using buyer's conversion function
                 
-                if conversion_func_id not in conversion_analysis:
-                    conversion_analysis[conversion_func_id] = {
-                        'preferences': [],
-                        'buyer_count': 0
-                    }
-                
-                # Extract preferences for this buyer
-                if hasattr(buyer, 'attr_mu') and buyer.attr_mu:
-                    buyer_prefs = buyer.attr_mu[:2]  # First 2 attributes
-                    # Add noise based on effort quality
-                    noisy_prefs = [
-                        max(0.0, min(1.0, pref + np.random.normal(0, noise_factor * 0.2)))
-                        for pref in buyer_prefs
-                    ]
-                    conversion_analysis[conversion_func_id]['preferences'].append(noisy_prefs)
-                    conversion_analysis[conversion_func_id]['buyer_count'] += 1
-        
-        # Interpret preferences in terms of marketing attributes
-        for attr_name, attr_def in marketing_definitions.items():
-            if attr_def.get('type') in ['qualitative', 'numeric']:
-                # Analyze how this attribute relates to buyer preferences
-                attr_preference_scores = []
-                
-                for conversion_id, data in conversion_analysis.items():
-                    if data['preferences']:
-                        avg_pref = np.mean([prefs[0] if prefs else 0.5 for prefs in data['preferences']])
-                        # Add noise based on effort quality
-                        avg_pref += np.random.normal(0, noise_factor * 0.1)
-                        attr_preference_scores.append(max(0.0, min(1.0, avg_pref)))
-                
-                if attr_preference_scores:
-                    marketing_preference_interpretation[attr_name] = {
-                        'avg_preference_strength': float(np.mean(attr_preference_scores)),
-                        'preference_variance': float(np.var(attr_preference_scores)),
-                        'attribute_description': attr_def.get('description', ''),
-                        'sample_buyers': len(attr_preference_scores)
-                    }
-        
-        # Analyze buyer heterogeneity in attribute valuation
-        if len(conversion_analysis) >= 2:  # Need multiple conversion functions to analyze heterogeneity
-            for attr_name in marketing_definitions.keys():
-                # Simulate different conversion function valuations
-                conversion_valuations = []
-                
-                for conversion_id, data in conversion_analysis.items():
-                    if data['buyer_count'] >= 2:  # Only include functions with sufficient buyers
-                        # Simulate how this conversion function values the attribute
-                        base_valuation = np.random.uniform(0.3, 0.9)
-                        # Add noise based on effort quality
-                        valuation = base_valuation + np.random.normal(0, noise_factor * 0.2)
-                        conversion_valuations.append(max(0.0, min(1.0, valuation)))
-                
-                if len(conversion_valuations) >= 2:
-                    buyer_heterogeneity[attr_name] = {
-                        'valuation_mean': float(np.mean(conversion_valuations)),
-                        'valuation_std': float(np.std(conversion_valuations)),
-                        'heterogeneity_level': 'high' if np.std(conversion_valuations) > 0.2 else 'medium' if np.std(conversion_valuations) > 0.1 else 'low',
-                        'conversion_functions_analyzed': len(conversion_valuations)
-                    }
-    
+                single_attr_dict = {attr_name: offer.marketing_attributes.get(attr_name, 'medium')}
+                feature_vector = convert_marketing_to_features(
+                    single_attr_dict, buyer.buyer_conversion_function, [attr_name]
+                )
+                feature_value = feature_vector[attr_idx] if feature_vector else 0.5
+                attribute_importance[attr_name].append(feature_value * wtp)
+        # Rank attributes by average WTP
+        top_attributes = sorted(
+            attribute_importance.items(),
+            key=lambda x: np.mean(x[1]),
+            reverse=True
+        )[:3]
+        top_valued_attributes = [
+            {
+                "attribute": attr_name,
+                "average_wtp": np.mean(wtp_values), 
+                "importance": np.std(wtp_values)  # Variance as importance measure
+            }
+            for attr_name, wtp_values in top_attributes
+        ]
+        recommendation = "Focus on attributes with highest average WTP across buyers."
+    else:
+        top_valued_attributes = []
+        recommendation = "No WTP data available - consider increasing sample size or offer variety."
+
     return BuyerPreferenceResponse(
         sector=sector,
-        avg_preferences=avg_preferences,
-        preference_distribution=preference_distribution,
-        sample_size=sample_size,
-        confidence_level=confidence_level,
-        preference_variance=preference_variance,
+        top_valued_attributes=top_valued_attributes,
+        sample_size=len(sampled_buyers),
         quality_tier=quality_tier,
         effort_used=effort,
         warnings=warnings,
-        data_quality=data_quality,
-        marketing_preference_interpretation=marketing_preference_interpretation,
-        buyer_heterogeneity=buyer_heterogeneity
+        recommendation=recommendation
     )
 
+
+def generate_typical_attributes(attribute_order: List[str], marketing_definitions: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate typical/average marketing attributes for pricing simulation."""
+    attributes = {}
+    
+    for attr_name in attribute_order:
+        if attr_name in marketing_definitions:
+            attr_def = marketing_definitions[attr_name]
+            attr_type = attr_def.get('type', 'categorical')
+            
+            if attr_type == 'qualitative':
+                # Pick middle-tier value
+                values = attr_def.get('values', ['low', 'medium', 'high'])
+                attributes[attr_name] = values[len(values) // 2] if values else 'medium'
+            elif attr_type == 'numeric':
+                # Pick middle of range  
+                attr_range = attr_def.get('range', [0.0, 1.0])
+                attributes[attr_name] = (attr_range[0] + attr_range[1]) / 2
+            else:
+                attributes[attr_name] = 'standard'
+        else:
+            attributes[attr_name] = 'medium'  # Default
+    
+    return attributes
 
 def research_competitive_pricing_impl(
     market_model,
     config_data: Dict[str, Any],
     sector: str,
-    effort: float
+    effort: float,
+    marketing_attributes: Optional[Dict[str, Any]] = None
 ) -> CompetitivePricingResponse:
     """
-    Research competitive pricing patterns within a sector.
+    Research competitive pricing by simulating market share against real competitors.
     
     Args:
         market_model: Complete market model with state
         config_data: Full configuration data
         sector: Sector to analyze
         effort: Effort level allocated
+        marketing_attributes: Attributes to test pricing for (if None, uses typical attributes)
     
     Returns:
-        CompetitivePricingResponse: Analysis of competitive pricing patterns
+        CompetitivePricingResponse: Competitive analysis with market share projections
     """
-    # Extract configuration parameters
     state = market_model.state
     tool_params = config_data.get("tool_parameters", {}).get("research_competitive_pricing", {})
     
-    # Map effort to quality tier and analysis parameters
-    effort_thresholds = tool_params.get("effort_thresholds", {"high": 3.0, "medium": 1.5})
-    lookback_periods_config = tool_params.get("lookback_periods", {"high": 15, "medium": 8, "low": 3})
-    price_noise_config = tool_params.get("price_noise", {"high": 0.02, "medium": 0.08, "low": 0.15})
-    
-    if effort >= effort_thresholds.get("high", 3.0):
+    # Map effort to simulation parameters
+    effort_thresholds = tool_params.get("effort_thresholds", {"high": 2.5, "medium": 1.2})
+    if effort >= effort_thresholds.get("high", 2.5):
         quality_tier = "high"
-        lookback_periods = lookback_periods_config.get("high", 15)
-        price_noise = price_noise_config.get("high", 0.02)
-    elif effort >= effort_thresholds.get("medium", 1.5):
+        num_buyers = 30
+        price_points = 12
+        lookback_trades = 50
+    elif effort >= effort_thresholds.get("medium", 1.2):
         quality_tier = "medium"
-        lookback_periods = lookback_periods_config.get("medium", 8)
-        price_noise = price_noise_config.get("medium", 0.08)
+        num_buyers = 15
+        price_points = 6
+        lookback_trades = 20
     else:
         quality_tier = "low"
-        lookback_periods = lookback_periods_config.get("low", 3)
-        price_noise = price_noise_config.get("low", 0.15)
+        num_buyers = 8
+        price_points = 4
+        lookback_trades = 10
     
-    # Filter offers by sector (handle sector name abbreviations)
-    all_offers = getattr(state, 'offers', [])
-    # Include historical trades as well for more comprehensive pricing data
+    # Get current competitive landscape from recent trades/offers
     all_trades = getattr(state, 'all_trades', [])
-
-    sector_offers = [offer for offer in all_offers
-                     if market_model.state.knowledge_good_forecasts[offer.good_id].sector == sector]
-    sector_trades = [trade for trade in all_trades
-                     if market_model.state.knowledge_good_forecasts[trade.good_id].sector == sector]
-
+    current_offers = getattr(state, 'offers', [])
+    
+    # Filter to sector and recent activity
+    recent_trades = [t for t in all_trades[-lookback_trades:] 
+                    if hasattr(t, 'good_id') and t.good_id in state.knowledge_good_forecasts
+                    and state.knowledge_good_forecasts[t.good_id].sector == sector]
+    
+    sector_offers = [o for o in current_offers 
+                    if hasattr(o, 'good_id') and o.good_id in state.knowledge_good_forecasts
+                    and state.knowledge_good_forecasts[o.good_id].sector == sector]
+    
     warnings = []
-    
-    # Combine offers and trades for comprehensive pricing analysis
-    all_prices = []
-    
-    # Add current offers
-    for offer in sector_offers:
-        # Add noise based on effort quality
-        noisy_price = offer.price * (1 + np.random.normal(0, price_noise))
-        all_prices.append(max(0, noisy_price))
-    
-    # Add recent trade prices (limit by lookback_periods)
-    recent_trades = sector_trades[-lookback_periods*3:] if sector_trades else []
-    for trade in recent_trades:
-        noisy_price = trade.price * (1 + np.random.normal(0, price_noise))
-        all_prices.append(max(0, noisy_price))
-    
-    sample_size = len(all_prices)
-    
-    if sample_size == 0:
-        warnings.append(f"No competitive pricing data found for sector '{sector}'")
+    if not recent_trades and not sector_offers:
+        warnings.append(f"No competitive activity found in {sector} sector")
         return CompetitivePricingResponse(
             sector=sector,
-            price_statistics={"avg_price": 0.0, "price_std": 0.0, "min_price": 0.0, "max_price": 0.0},
-            competitive_landscape={"competition_level": "unknown", "market_depth": 0},
-            sample_size=0,
-            lookback_periods=lookback_periods,
-            price_ranges={},
+            price_simulations=[],
+            recommended_price=0.0,  # No competitive data available
             quality_tier=quality_tier,
             effort_used=effort,
             warnings=warnings,
-            data_quality="insufficient"
+            recommendation="No competitive data available - unable to provide pricing guidance"
         )
     
-    if sample_size < 3:
-        warnings.append("Limited pricing data may reduce analysis accuracy")
+    # Convert recent trades to competitor offers for simulation
+    competitor_offers = []
+    for trade in recent_trades:
+        competitor_offer = Offer(
+            good_id=trade.good_id,
+            price=trade.price,
+            seller=getattr(trade, 'seller_id', 'competitor'),
+            marketing_attributes=getattr(trade, 'marketing_attributes', {})
+        )
+        competitor_offers.append(competitor_offer)
     
-    # Calculate price statistics
-    price_statistics = {
-        "avg_price": float(np.mean(all_prices)),
-        "price_std": float(np.std(all_prices)) if len(all_prices) > 1 else 0.0,
-        "min_price": float(np.min(all_prices)),
-        "max_price": float(np.max(all_prices)),
-        "median_price": float(np.median(all_prices))
-    }
+    # Add current offers from other sellers
+    competitor_offers.extend(sector_offers)
     
-    # Analyze competitive landscape
-    competition_level = "high" if sample_size >= 8 else "medium" if sample_size >= 4 else "low"
-    price_spread = price_statistics["max_price"] - price_statistics["min_price"]
-    price_cv = price_statistics["price_std"] / price_statistics["avg_price"] if price_statistics["avg_price"] > 0 else 0
+    if len(competitor_offers) == 0:
+        warnings.append("No competitor offers available for analysis")
     
-    competitive_landscape = {
-        "competition_level": competition_level,
-        "market_depth": sample_size,
-        "price_spread": float(price_spread),
-        "price_volatility": price_cv,
-        "market_maturity": "mature" if price_cv < 0.2 else "developing"
-    }
+    # Sample buyers for simulation
+    all_buyers = getattr(state, 'buyers_state', [])
+    if not all_buyers:
+        warnings.append("No buyers available for competitive simulation")
+        return CompetitivePricingResponse(
+            sector=sector,
+            price_simulations=[],
+            recommended_price=0.0,
+            quality_tier=quality_tier,
+            effort_used=effort,
+            warnings=warnings,
+            recommendation="Cannot simulate without buyers"
+        )
     
-    # Calculate price ranges by segment
-    if len(all_prices) >= 3:
-        price_ranges = {
-            "premium": float(np.percentile(all_prices, 75)),
-            "standard": float(np.percentile(all_prices, 50)),
-            "budget": float(np.percentile(all_prices, 25))
-        }
+    attribute_order = getattr(state, 'attribute_order', [])
+    
+    # Filter buyers by sector (those who have preferences for this sector)
+    sector_buyers = [buyer for buyer in all_buyers 
+                     if hasattr(buyer, 'attr_mu') and sector in buyer.attr_mu]
+    
+    # Sample from sector-relevant buyers
+    if sector_buyers:
+        sampled_buyers = np.random.choice(sector_buyers, 
+                                        size=min(num_buyers, len(sector_buyers)), replace=False)
     else:
-        price_ranges = {"standard": price_statistics["avg_price"]}
+        # Fallback: use all buyers but ensure they have sector preferences
+        sampled_buyers = np.random.choice(all_buyers, 
+                                        size=min(num_buyers, len(all_buyers)), replace=False)
+        for buyer in sampled_buyers:
+            buyer.ensure_sector_exists(sector, len(attribute_order))
     
-    data_quality = "good" if quality_tier == "high" and sample_size >= 5 else \
-                  "fair" if quality_tier == "medium" else "limited"
+    # Use provided attributes or generate typical ones
+    if marketing_attributes is None:
+        marketing_definitions = getattr(state, 'marketing_attribute_definitions', {})
+        marketing_attributes = generate_typical_attributes(attribute_order, marketing_definitions)
     
-    # Marketing attribute-based pricing analysis
-    pricing_by_marketing_attributes = {}
-    attribute_price_premiums = {}
-    marketing_definitions = getattr(state, 'marketing_attribute_definitions', {})
+    # Determine price range from competitive landscape
+    competitor_prices = [o.price for o in competitor_offers]
+    if competitor_prices:
+        min_comp_price = min(competitor_prices)
+        max_comp_price = max(competitor_prices)
+        avg_comp_price = np.mean(competitor_prices)
+        # Test prices from 20% below minimum to 20% above maximum competitor
+        price_range = (min_comp_price * 0.8, max_comp_price * 1.2)
+    else:
+        avg_comp_price = 0.0
+        price_range = (0.0, 0.0)
+
+    # Test different price points
+    test_prices = np.linspace(price_range[0], price_range[1], price_points)
+    price_simulations = []
     
-    if marketing_definitions:
-        # Analyze pricing by marketing attributes from offers and trades
-        attribute_pricing = {}
+    # Configure choice model simulation
+    from ...models.market_for_finance import choice_model
+    
+    # Create mock config for choice model
+    choice_config = type('Config', (), {
+        'choice_model': config_data.get('choice_model', 'greedy'),
+        'cart_draws': config_data.get('cart_draws', None)
+    })()
+    
+    for price in test_prices:
+        # Create our candidate offer
+        candidate_offer = Offer(
+            good_id=f"candidate_offer_{sector}",
+            price=price,
+            seller="our_seller",
+            marketing_attributes=marketing_attributes
+        )
         
-        # Process offers with marketing attributes
-        for offer in sector_offers:
-            if hasattr(offer, 'marketing_attributes') and offer.marketing_attributes:
-                attr_key = tuple(sorted(offer.marketing_attributes.items()))
-                if attr_key not in attribute_pricing:
-                    attribute_pricing[attr_key] = []
-                
-                # Add noise based on effort quality
-                noisy_price = offer.price * (1 + np.random.normal(0, price_noise))
-                attribute_pricing[attr_key].append(max(0, noisy_price))
+        # Create full offer set (competitors + our candidate)
+        all_offers = competitor_offers + [candidate_offer]
         
-        # Process trades with marketing attributes
-        for trade in recent_trades:
-            if hasattr(trade, 'marketing_attributes') and trade.marketing_attributes:
-                attr_key = tuple(sorted(trade.marketing_attributes.items()))
-                if attr_key not in attribute_pricing:
-                    attribute_pricing[attr_key] = []
-                
-                noisy_price = trade.price * (1 + np.random.normal(0, price_noise))
-                attribute_pricing[attr_key].append(max(0, noisy_price))
+        # Simulate buyer choices using actual choice model
+        our_purchases = 0
+        total_purchases = 0
+        total_buyer_value = 0.0
         
-        # Analyze pricing patterns by attribute combinations
-        for attr_key, prices in attribute_pricing.items():
-            if len(prices) >= 2:  # Only analyze groups with sufficient data
-                attr_dict = dict(attr_key)
+        for buyer in sampled_buyers:
+            # Run choice model to see what buyer would purchase
+            try:
+                buyer_choices = choice_model(buyer, all_offers, choice_config, state)
                 
-                # Get human-readable description
-                descriptions = get_marketing_attribute_description(attr_dict, marketing_definitions)
-                
-                pricing_stats = {
-                    "avg_price": float(np.mean(prices)),
-                    "price_std": float(np.std(prices)),
-                    "min_price": float(np.min(prices)),
-                    "max_price": float(np.max(prices)),
-                    "sample_count": len(prices),
-                    "attributes": attr_dict,
-                    "descriptions": descriptions
-                }
-                
-                analysis_key = str(descriptions)
-                pricing_by_marketing_attributes[analysis_key] = pricing_stats
+                # Count purchases
+                for chosen_offer in buyer_choices:
+                    total_purchases += 1
+                    if chosen_offer.good_id == candidate_offer.good_id:
+                        our_purchases += 1
+                        # Calculate buyer's value for our offer
+                        from ...models.market_for_finance import convert_marketing_to_features
+                        features = convert_marketing_to_features(
+                            marketing_attributes,
+                            buyer.buyer_conversion_function,
+                            attribute_order
+                        )
+                        buyer_value = np.dot(buyer.attr_weights.get(sector, [0.5] * len(attribute_order)), features)
+                        total_buyer_value += buyer_value
+                        
+            except Exception as e:
+                # Handle any choice model errors gracefully
+                warnings.append(f"Choice model simulation error at price {price:.2f}")
+                continue
         
-        # Calculate attribute price premiums
-        if pricing_by_marketing_attributes:
-            # Use overall average as baseline
-            baseline_price = price_statistics["avg_price"]
-            
-            for attr_name, attr_def in marketing_definitions.items():
-                if attr_def.get('type') == 'qualitative':
-                    # For qualitative attributes, calculate premium by value
-                    for value in attr_def.get('values', []):
-                        matching_prices = []
-                        
-                        for analysis_key, pricing_data in pricing_by_marketing_attributes.items():
-                            if attr_name in pricing_data['attributes'] and pricing_data['attributes'][attr_name] == value:
-                                matching_prices.append(pricing_data['avg_price'])
-                        
-                        if matching_prices:
-                            avg_price_for_value = np.mean(matching_prices)
-                            premium = (avg_price_for_value - baseline_price) / baseline_price if baseline_price > 0 else 0
-                            # Add noise based on effort quality
-                            premium += np.random.normal(0, price_noise * 0.5)
-                            
-                            attribute_price_premiums[f"{attr_name}_{value}"] = float(premium)
-                
-                elif attr_def.get('type') == 'numeric':
-                    # For numeric attributes, calculate correlation with price
-                    prices_and_values = []
-                    
-                    for analysis_key, pricing_data in pricing_by_marketing_attributes.items():
-                        if attr_name in pricing_data['attributes']:
-                            attr_value = pricing_data['attributes'][attr_name]
-                            if isinstance(attr_value, (int, float)):
-                                prices_and_values.append((attr_value, pricing_data['avg_price']))
-                    
-                    if len(prices_and_values) >= 3:  # Need enough data for correlation
-                        values, prices = zip(*prices_and_values)
-                        correlation = np.corrcoef(values, prices)[0, 1] if len(values) > 1 else 0
-                        
-                        # Convert correlation to premium interpretation
-                        # Add noise based on effort quality
-                        correlation += np.random.normal(0, price_noise)
-                        
-                        attribute_price_premiums[f"{attr_name}_correlation"] = float(correlation)
+        # Calculate competitive metrics
+        market_share = our_purchases / len(sampled_buyers) if len(sampled_buyers) > 0 else 0
+        capture_rate = our_purchases / total_purchases if total_purchases > 0 else 0
+        avg_buyer_value = total_buyer_value / our_purchases if our_purchases > 0 else 0
+        expected_revenue = our_purchases * price
+        
+        price_simulations.append({
+            "price": float(price),
+            "market_share": float(market_share),
+            "capture_rate": float(capture_rate),
+            "buyers_purchasing": int(our_purchases),
+            "total_market_purchases": int(total_purchases),
+            "avg_buyer_value": float(avg_buyer_value),
+            "expected_revenue": float(expected_revenue),
+            "competitive_position": "premium" if price > avg_comp_price * 1.1 else 
+                                   "discount" if price < avg_comp_price * 0.9 else "competitive"
+        })
+    
+    # Find optimal price (highest expected revenue)
+    if price_simulations:
+        best_simulation = max(price_simulations, key=lambda x: x["expected_revenue"])
+        recommended_price = best_simulation["price"]
+        
+        # Generate recommendation
+        market_share = best_simulation["market_share"] * 100
+        competitive_pos = best_simulation["competitive_position"]
+        recommendation = f"Recommended price: ${recommended_price:.2f} ({competitive_pos} positioning, {market_share:.1f}% market share)"
+    else:
+        recommended_price = avg_comp_price
+        recommendation = "Simulation failed - consider competitive pricing around average"
+    
+    if len(sampled_buyers) < 10:
+        warnings.append("Small buyer sample may reduce accuracy")
+    if len(competitor_offers) < 3:
+        warnings.append("Limited competitive landscape may skew results")
     
     return CompetitivePricingResponse(
         sector=sector,
-        price_statistics=price_statistics,
-        competitive_landscape=competitive_landscape,
-        sample_size=sample_size,
-        lookback_periods=lookback_periods,
-        price_ranges=price_ranges,
+        price_simulations=price_simulations,
+        recommended_price=recommended_price,
         quality_tier=quality_tier,
         effort_used=effort,
         warnings=warnings,
-        data_quality=data_quality,
-        pricing_by_marketing_attributes=pricing_by_marketing_attributes,
-        attribute_price_premiums=attribute_price_premiums
+        recommendation=recommendation
     )
