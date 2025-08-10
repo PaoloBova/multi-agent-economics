@@ -203,7 +203,7 @@ def generate_forecast_signal(true_next_regime: int, confusion_matrix: np.ndarray
     Returns:
         Forecast data (regime prediction and confidence vector)
     """
-    forecast_probs = confusion_matrix[true_next_regime]
+    forecast_probs = confusion_matrix[:, true_next_regime]
     return {"predicted_regime": categorical_draw(forecast_probs),
             "confidence_vector": forecast_probs.tolist()}
 
@@ -211,11 +211,7 @@ def update_belief_with_forecast(current_belief, forecast):
     """
     Update beliefs for a specific sector based on the forecast signal.
     """
-    if isinstance(forecast, ForecastData):
-        likelihood = forecast.confidence_vector
-    else:
-        # Legacy dictionary format
-        likelihood = forecast["confidence_vector"]
+    likelihood = forecast.confidence_vector
     posterior = current_belief * likelihood
     posterior = posterior / np.sum(posterior) if np.sum(posterior) > 0 else current_belief
     return posterior

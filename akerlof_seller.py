@@ -17,7 +17,7 @@ from multi_agent_economics.models.market_for_finance import (
     BuyerState, SellerState, build_confusion_matrix, generate_forecast_signal,
     categorical_draw, get_average_attribute_vector
 )
-from multi_agent_economics.tools.implementations.economic import sector_forecast_impl
+from multi_agent_economics.tools.implementations.economic import analyze_historical_performance_impl, sector_forecast_impl
 
 
 class AkerlofSeller:
@@ -98,15 +98,10 @@ class AkerlofSeller:
         """
         matching_revenues = []
         
-        # Get performance tolerance from context
-        performance_tolerance = self.context.get('performance_tolerance', 0.05)  # Default 5% tolerance
-        
         for trade in trades:
-            if trade.good_id in self.performance_data:
-                actual_performance = self.performance_data[trade.good_id]
-                # Consider performances within tolerance range as "similar"
-                if abs(actual_performance - performance_level) <= performance_tolerance:
-                    matching_revenues.append(trade.price)
+            # 
+            group_by_effort_level = 
+            matching_revenues.append(trade.price)
         
         return matching_revenues
         
@@ -138,7 +133,7 @@ class AkerlofSeller:
             medium_threshold = effort_thresholds.get('medium', 2.0)
             return medium_threshold * 0.5  # Half of medium threshold
     
-    def stage1_effort_decision(self, historical_trades: List[TradeData], round_num: int) -> Tuple[str, Tuple[str, ForecastData]]:
+    def stage1_effort_decision(self, round_num: int) -> Tuple[str, Tuple[str, ForecastData]]:
         """
         Stage 1: Choose effort level to maximize expected profit.
         
@@ -159,15 +154,18 @@ class AkerlofSeller:
         """
         # Calculate expected profits for each effort level
         effort_profits = {}
-        
+        historical_trades = analyze_historical_performance_impl(
+                self.market_model,
+                self.context,
+                sector,
+                effort=100  # We use arbitrarily high effort for now
+            )
         for effort, cost in self.effort_costs.items():
-            # Map effort to expected performance level
-            expected_performance = self.effort_quality_mapping[effort]
-            
-            # Estimate revenue based on historical data
-            historical_revenues = self.analyze_historical_revenues(expected_performance, historical_trades)
-            expected_revenue = np.mean(historical_revenues) if historical_revenues else 0.0
-            
+            # Filter historical trades based on expected performance
+            relevant_trades = [trade for trade in historical_trades
+                               if   == performance]
+            relevant_revenues = [trade.price * trade.quantity for trade in relevant_trades]
+            expected_revenue = np.mean(relevant_revenues) if relevant_revenues else 0.0
             # Calculate expected profit
             expected_profit = expected_revenue - cost
             effort_profits[effort] = expected_profit

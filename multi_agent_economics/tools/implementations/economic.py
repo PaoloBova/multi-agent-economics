@@ -120,6 +120,13 @@ def post_to_market_impl(
     """
     Post an offer to the market.
     """
+    if forecast_id not in market_model.state.knowledge_good_forecasts:
+        return PostToMarketResponse(
+            offer=None,
+            status="error",
+            message=f"Forecast ID {forecast_id} not found in market model state. No such knowledge good exists."
+        )
+    
     # Prepare the offer data
     offer_data = {
         "good_id": forecast_id,
@@ -128,6 +135,29 @@ def post_to_market_impl(
         "marketing_attributes": marketing_attributes
     }
     market_model.state.offers.append(Offer(**offer_data))
+    
+    # TODO: I suspect that the correct approach might be to have agents convert
+    # their forecast data into marketing evidence, that they can use to justify
+    # their offers in terms of marketing attributes. This would look like:
+    # evidence = [{
+    #     "forecast_id": forecast_id,
+    #     "attribute": "quality",
+    #     "evidence": "This offer has high quality based on forecast analysis. We used the following methods to generate this forecast: "
+    # }]
+    # Or maybe the type of evidence should be more specific, like: if they know
+    # a high quality forecast requires looking at a set of leading indicators and
+    # running statistical analysis, then they can mention what indicators they used
+    # and what statistical methods they applied to generate the forecast. This
+    # information is an assertion of quality
+    # Eventually, we could return warnings if attributes do not have sufficient evidence
+    # and either edit the offer or return an error response and ask to re-submit.
+    # However, the usefulness of this approach depends on how convincing it is to
+    # see the agents deceptively generating fake evidence that passes the checks.
+    # As this is hard to achieve, we will not implement this for now. Instead,
+    # agents will have to work out what attributes they want to use in their
+    # marketing, when there is an obvious mismatch between the forecast and the
+    # marketing attributes they might want to use to maximise profits.
+    
     return PostToMarketResponse(
         offer=Offer(**offer_data),
         status="success",
