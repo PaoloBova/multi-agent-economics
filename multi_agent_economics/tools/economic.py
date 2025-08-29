@@ -52,27 +52,24 @@ def create_economic_tools(market_model, config_data: Dict[str, Any]) -> List[Fun
     
     async def sector_forecast(
         sector: Annotated[str, "Sector to forecast (tech, finance, healthcare, energy)"],
-        horizon: Annotated[int, "Number of periods to forecast (1-12)"], 
         effort: Annotated[float, "Credits to allocate (0.1-10.0)"]
     ) -> SectorForecastResponse:
         """Generate sector growth forecast using regime-switching analysis."""
         
         effort = handle_budget(market_model, config_data, effort, "sector_forecast")
-
+        horizon = 1  # Fixed horizon to 1 until further notice
         return sector_forecast_impl(market_model, config_data, sector, horizon, effort)
     
     
     async def post_to_market(
-        notional: Annotated[float, "Notional amount of the structured note"],
-        payoff_type: Annotated[str, "Type of payoff structure (linear, barrier, autocall, digital)"],
-        underlying_forecast: Annotated[List[float], "Expected returns for underlying assets"],
-        discount_rate: Annotated[float, "Risk-free discount rate"] = 0.03,
-        effort: Annotated[float, "Credits to allocate"] = 1.0
+        forecast_id: Annotated[str, "Forecast ID for sector_forecast you wish to sell"],
+        price: Annotated[float, "Price to post (in USD)"],
+        marketing_attributes: Annotated[Dict[str, Any], "Marketing attributes associated with good."],
     ) -> PostToMarketResponse:
         """Price structured financial instruments and post to market."""
         
         effort = handle_budget(market_model, config_data, effort, "post_to_market")
-        return post_to_market_impl(market_model, config_data, notional, payoff_type, underlying_forecast, discount_rate, effort)
+        return post_to_market_impl(market_model, config_data, forecast_id, price, marketing_attributes)
     
     
     async def analyze_historical_performance(
@@ -97,12 +94,13 @@ def create_economic_tools(market_model, config_data: Dict[str, Any]) -> List[Fun
     
     async def research_competitive_pricing(
         sector: Annotated[str, "Sector to analyze (tech, finance, healthcare, energy)"],
-        effort: Annotated[float, "Credits to allocate (0.1-10.0)"]
+        effort: Annotated[float, "Credits to allocate (0.1-10.0)"],
+        marketing_attributes: Annotated[Dict[str, Any], "Marketing attributes associated with good to price."]
     ) -> CompetitivePricingResponse:
         """Research competitive pricing patterns within a sector for market research."""
         
         effort = handle_budget(market_model, config_data, effort, "research_competitive_pricing")
-        return research_competitive_pricing_impl(market_model, config_data, sector, effort)
+        return research_competitive_pricing_impl(market_model, config_data, sector, effort, marketing_attributes)
     
     
     # Return tools

@@ -7,6 +7,7 @@ Pydantic response models directly. Wrappers only handle budget/logging.
 
 import numpy as np
 from typing import Dict, List, Any, Optional
+import uuid
 from ..schemas import (
     SectorForecastResponse, PostToMarketResponse,
     HistoricalPerformanceResponse, BuyerPreferenceResponse, CompetitivePricingResponse,
@@ -33,7 +34,7 @@ def sector_forecast_impl(
         market_model: Complete market model with state
         config_data: Full configuration data
         sector: Sector to forecast
-        horizon: Number of periods (ignored for now)
+        horizon: Number of periods
         effort: Effort level allocated
     
     Returns:
@@ -94,13 +95,19 @@ def sector_forecast_impl(
     base_quality = tool_params.get("base_forecast_quality", 0.6)
     confusion_matrix = build_confusion_matrix(forecast_quality, K, base_quality)
     forecast_result = generate_forecast_signal(true_next_regime, confusion_matrix)
-    
+
     # Create ForecastData object
+    forecast_id = f"forecast_{uuid.uuid4().hex[:8]}"
     forecast_data = ForecastData(
+        forecast_id=forecast_id,
         sector=sector,
         predicted_regime=forecast_result["predicted_regime"],
         confidence_vector=forecast_result["confidence_vector"]
     )
+    
+    # Add forecast to market state knowledge goods
+    forecast_id = forecast_data.forecast_id
+    state.knowledge_good_forecasts[forecast_id] = forecast_data
     
     # Return SectorForecastResponse with embedded ForecastData
     return SectorForecastResponse(
