@@ -9,7 +9,8 @@ import numpy as np
 from typing import Dict, List, Any, Optional
 from ..schemas import (
     SectorForecastResponse, PostToMarketResponse,
-    HistoricalPerformanceResponse, BuyerPreferenceResponse, CompetitivePricingResponse
+    HistoricalPerformanceResponse, BuyerPreferenceResponse, CompetitivePricingResponse,
+    AttributeAnalysis, WTPDataPoint
 )
 from ...models.market_for_finance import (
     ForecastData, Offer, build_confusion_matrix, generate_forecast_signal, 
@@ -261,6 +262,61 @@ def analyze_historical_performance_impl(
     )
 
 
+def run_ols_regression(X: np.ndarray, y: np.ndarray) -> Dict[str, Any]:
+    """
+    Run OLS regression using numpy linear algebra.
+    
+    Args:
+        X: Feature matrix (n_samples, n_features)
+        y: Target vector (n_samples,)
+        
+    Returns:
+        Dict with coefficients, r_squared, and statistics
+    """
+    n, p = X.shape
+    X_with_intercept = np.column_stack([np.ones(n), X])
+    
+    try:
+        # Solve normal equations: (X'X)β = X'y
+        XTX = X_with_intercept.T @ X_with_intercept
+        XTy = X_with_intercept.T @ y
+        beta = np.linalg.solve(XTX, XTy)
+        
+        # Calculate predictions and residuals
+        y_pred = X_with_intercept @ beta
+        residuals = y - y_pred
+        
+        # Calculate R-squared
+        y_mean = np.mean(y)
+        ss_tot = np.sum((y - y_mean) ** 2)
+        ss_res = np.sum(residuals ** 2)
+        r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+        
+        # Calculate standard errors
+        mse = ss_res / (n - p - 1) if n > p + 1 else np.inf
+        var_covar_matrix = mse * np.linalg.inv(XTX)
+        std_errors = np.sqrt(np.diag(var_covar_matrix))
+        
+        return {
+            'intercept': beta[0],
+            'coefficients': beta[1:],  # Exclude intercept
+            'std_errors': std_errors[1:],  # Exclude intercept SE
+            'r_squared': r_squared,
+            'n_obs': n,
+            'residuals': residuals
+        }
+    except np.linalg.LinAlgError:
+        # Handle singular matrix (perfect multicollinearity)
+        return {
+            'intercept': 0,
+            'coefficients': np.zeros(p),
+            'std_errors': np.full(p, np.inf),
+            'r_squared': 0,
+            'n_obs': n,
+            'residuals': np.zeros(n)
+        }
+
+
 def generate_test_offers(sector: str, num_offers: int, attribute_order: List[str], 
                         marketing_definitions: Dict[str, Any]) -> List:
     """Generate representative test offers for preference analysis."""
@@ -328,17 +384,17 @@ def analyze_buyer_preferences_impl(
         quality_tier = "high"
         num_buyers = tool_params.get("high_effort_num_buyers", 30)
         num_test_offers = tool_params.get("high_effort_num_test_offers", 12)
-        analyze_by_attribute = tool_params.get("high_effort_analyze_by_attribute", True)
+        use_regression = tool_params.get("high_effort_analyze_by_attribute", True)
     elif effort >= effort_thresholds.get("medium", 1.5):
         quality_tier = "medium"
         num_buyers = tool_params.get("medium_effort_num_buyers", 15)
         num_test_offers = tool_params.get("medium_effort_num_test_offers", 6)
-        analyze_by_attribute = tool_params.get("medium_effort_analyze_by_attribute", False)
+        use_regression = tool_params.get("medium_effort_analyze_by_attribute", False)
     else:
         quality_tier = "low"
         num_buyers = tool_params.get("low_effort_num_buyers", 5)
         num_test_offers = tool_params.get("low_effort_num_test_offers", 3)
-        analyze_by_attribute = tool_params.get("low_effort_analyze_by_attribute", False)
+        use_regression = tool_params.get("low_effort_analyze_by_attribute", False)
     
     all_buyers = state.buyers_state
     attribute_order = state.attribute_order
@@ -346,8 +402,11 @@ def analyze_buyer_preferences_impl(
     if len(all_buyers) == 0:
         return BuyerPreferenceResponse(
             sector=sector,
-            top_valued_attributes=[],
+            analysis_method="insufficient_data",
+            attribute_insights=[],
+            raw_wtp_data=[],
             sample_size=0,
+            total_observations=0,
             quality_tier=quality_tier,
             effort_used=effort,
             warnings=["No buyers available for analysis"],
@@ -363,12 +422,11 @@ def analyze_buyer_preferences_impl(
     marketing_definitions = state.marketing_attribute_definitions
     test_offers = generate_test_offers(sector, num_test_offers, attribute_order, marketing_definitions)
     
-    # Calculate WTP for each buyer-offer combination
-    attribute_importance = {}
-    for attr_idx, attr_name in enumerate(attribute_order):
-        attribute_importance[attr_name] = []
+    # Calculate WTP for each buyer-offer combination and build feature matrix
+    raw_wtp_data = []
+    feature_matrix = []
+    wtp_vector = []
     
-    wtp_data = []
     for buyer in sampled_buyers:
         for offer in test_offers:
             features = convert_marketing_to_features(
@@ -378,60 +436,111 @@ def analyze_buyer_preferences_impl(
             )
             
             # WTP = sum of (attribute_weight * feature_value)
-            # Choice model typically encourages a purchase if WTP > price
             wtp = np.dot(buyer.attr_weights.get(sector, [0.5] * len(attribute_order)), features)
-            wtp_data.append({"offer": offer, "willingness_to_pay": wtp})
-    
+            
+            # Store in new schema format
+            wtp_data_point = WTPDataPoint(
+                buyer_id=buyer.buyer_id,
+                offer_attributes=offer.marketing_attributes,
+                willingness_to_pay=wtp
+            )
+            raw_wtp_data.append(wtp_data_point)
+            
+            # Build matrices for regression
+            feature_matrix.append(features)
+            wtp_vector.append(wtp)
+
     # Add warnings
-    
     warnings = []
     if len(sampled_buyers) < 5:
         warnings.append("Limited buyer sample size may reduce analysis reliability")
     if len(test_offers) < 3:
         warnings.append("Limited offer variety may not capture full preference spectrum")
     
+    total_observations = len(raw_wtp_data)
     
-    # Add recommendation
+    # Determine analysis method and perform analysis
+    attribute_insights = []
+    analysis_method = "insufficient_data"
+    regression_r_squared = None
     
-    if wtp_data and analyze_by_attribute:
-        # Group by attributes and calculate average WTP
-        for data in wtp_data:
-            offer = data["offer"]
-            wtp = data["willingness_to_pay"]
-            for _, attr_name in enumerate(attribute_order):
-                if attr_name not in attribute_importance:
-                    attribute_importance[attr_name] = []
-                # Convert marketing attribute to numerical feature value using buyer's conversion function
+    if total_observations >= 30 and use_regression and len(attribute_order) > 0:
+        # High effort: Use OLS regression
+        try:
+            X = np.array(feature_matrix)
+            y = np.array(wtp_vector)
+            
+            # Check for sufficient variation
+            if np.var(y) > 1e-10 and X.shape[1] > 0:
+                regression_results = run_ols_regression(X, y)
+                analysis_method = "regression"
+                regression_r_squared = regression_results["r_squared"]
                 
-                single_attr_dict = {attr_name: offer.marketing_attributes.get(attr_name, 'medium')}
-                feature_vector = convert_marketing_to_features(
-                    single_attr_dict, buyer.buyer_conversion_function, [attr_name]
-                )
-                feature_value = feature_vector[0] if feature_vector else 0.0
-                attribute_importance[attr_name].append(feature_value * wtp)
-        # Rank attributes by average WTP
-        top_attributes = sorted(
-            attribute_importance.items(),
-            key=lambda x: np.mean(x[1]),
-            reverse=True
-        )[:3]
-        top_valued_attributes = [
-            {
-                "attribute": attr_name,
-                "average_wtp": np.mean(wtp_values), 
-                "importance": np.std(wtp_values)  # Variance as importance measure
-            }
-            for attr_name, wtp_values in top_attributes
-        ]
-        recommendation = "Focus on attributes with highest average WTP across buyers."
-    else:
-        top_valued_attributes = []
-        recommendation = "No WTP data available - consider increasing sample size or offer variety."
+                # Create AttributeAnalysis for each attribute
+                for i, attr_name in enumerate(attribute_order):
+                    # Extract coefficient for this attribute (intercept already excluded)
+                    if i < len(regression_results["coefficients"]):
+                        marginal_impact = regression_results["coefficients"][i]
+                        
+                        # Determine confidence based on standard error
+                        std_error = regression_results["std_errors"][i] if i < len(regression_results["std_errors"]) else float('inf')
+                        if abs(marginal_impact) > 2 * std_error:  # Roughly 95% confidence
+                            confidence = "high"
+                        elif abs(marginal_impact) > std_error:
+                            confidence = "medium"
+                        else:
+                            confidence = "low"
+                        
+                        attribute_insights.append(AttributeAnalysis(
+                            attribute_name=attr_name,
+                            marginal_wtp_impact=marginal_impact,
+                            average_feature_value=None,  # Not meaningful for business interpretation
+                            sample_size=total_observations,
+                            confidence_level=confidence
+                        ))
+                
+                recommendation = f"Regression analysis with R² = {regression_r_squared:.3f}. Focus on attributes with highest marginal WTP impact and high confidence."
+            else:
+                warnings.append("Insufficient variation in WTP data for regression analysis")
+                analysis_method = "insufficient_data"
+                recommendation = "Insufficient variation in data - consider more diverse test offers or buyers"
+        except Exception as e:
+            warnings.append(f"Regression analysis failed: {str(e)}")
+            analysis_method = "insufficient_data"
+            recommendation = "Statistical analysis failed - falling back to descriptive approach"
+    
+    if analysis_method == "insufficient_data" and total_observations > 0:
+        # Fall back to descriptive analysis
+        analysis_method = "descriptive"
+        
+        # Calculate descriptive statistics per attribute
+        for attr_name in attribute_order:
+            # Simple confidence based on sample size
+            if total_observations >= 20:
+                confidence = "medium"
+            elif total_observations >= 10:
+                confidence = "low"
+            else:
+                confidence = "low"
+            
+            attribute_insights.append(AttributeAnalysis(
+                attribute_name=attr_name,
+                marginal_wtp_impact=None,  # No regression available
+                average_feature_value=None,  # Not meaningful for descriptive analysis
+                sample_size=total_observations,
+                confidence_level=confidence
+            ))
+        
+        recommendation = "Descriptive analysis only - increase effort and sample size for regression-based insights"
 
     return BuyerPreferenceResponse(
         sector=sector,
-        top_valued_attributes=top_valued_attributes,
+        analysis_method=analysis_method,
+        attribute_insights=attribute_insights,
+        regression_r_squared=regression_r_squared,
+        raw_wtp_data=raw_wtp_data,
         sample_size=len(sampled_buyers),
+        total_observations=total_observations,
         quality_tier=quality_tier,
         effort_used=effort,
         warnings=warnings,

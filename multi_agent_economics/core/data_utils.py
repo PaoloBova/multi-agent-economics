@@ -2,6 +2,7 @@
 import collections
 import datetime
 import hashlib
+import h5py
 import json
 import logging
 from matplotlib.animation import FuncAnimation

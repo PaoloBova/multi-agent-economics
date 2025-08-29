@@ -201,12 +201,12 @@ def demo_portfolio_optimization():
     ])
     
     # Compute portfolio moments
+    sectors = ["tech", "finance", "healthcare"]  # Canonical ordering
     expected_returns, covariance_matrix = compute_portfolio_moments(
-        agent_beliefs, regime_returns, regime_volatilities, correlations
+        agent_beliefs, regime_returns, regime_volatilities, correlations, sectors
     )
     
     print(f"   Expected returns based on regime beliefs:")
-    sectors = ["tech", "finance", "healthcare"]
     for i, sector in enumerate(sectors):
         print(f"   {sector.capitalize():>11}: {expected_returns[i]:.1%}")
     

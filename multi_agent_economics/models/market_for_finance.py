@@ -6,10 +6,12 @@ supply and demand, information flow, and budget allocation among agents.
 """
 
 import numpy
+import numpy as np
 from pydantic import Field, BaseModel
 from typing import Any, Callable, Union
+from multi_agent_economics.models.scenario_templates import ScenarioConfig
+from multi_agent_economics.models.schema import RegimeParameters
 
-import numpy as np
 
 
 # ============================================================================
@@ -52,7 +54,7 @@ def generate_regime_returns(regimes: dict, regime_params: dict) -> dict:
     
     Args:
         regimes: Dict mapping sector -> current regime index
-        regime_params: Dict mapping sector -> {regime_idx -> {mu, sigma}}
+        regime_params: Dict mapping sector -> {regime_idx -> RegimeParameters}
         
     Returns:
         Dict mapping sector -> realized return
@@ -67,8 +69,8 @@ def generate_regime_returns(regimes: dict, regime_params: dict) -> dict:
             raise ValueError(f"No parameters for regime {regime} in sector {sector}")
             
         params = regime_params[sector][regime]
-        mu = params["mu"]
-        sigma = params["sigma"]
+        mu = params.mu
+        sigma = params.sigma
         
         # Generate return from normal distribution
         return_value = np.random.normal(mu, sigma)
@@ -82,7 +84,7 @@ def generate_regime_history(regimes: dict, regime_params: dict, transition_matri
     
     Args:
         regimes: Dict mapping sector -> current regime index
-        regime_params: Dict mapping sector -> {regime_idx -> {mu, sigma}}
+        regime_params: Dict mapping sector -> {regime_idx -> RegimeParameters}
         transition_matrices: Dict mapping sector -> transition matrix (K x K)
         history_length: Number of periods to generate returns for
         
@@ -115,7 +117,7 @@ def generate_regime_history(regimes: dict, regime_params: dict, transition_matri
     
     return history
 
-def generate_regime_history_from_scenario(scenario_config, num_periods: int) -> list[dict]:
+def generate_regime_history_from_scenario(scenario_config: ScenarioConfig, num_periods: int) -> list[dict]:
     """
     Generate complete regime history from scenario template.
     
@@ -135,7 +137,7 @@ def generate_regime_history_from_scenario(scenario_config, num_periods: int) -> 
 
 
 def build_regime_covariance(regimes: dict, regime_volatilities: dict, 
-                           fixed_correlations: np.ndarray) -> np.ndarray:
+                           fixed_correlations: np.ndarray, sector_order: list[str]) -> np.ndarray:
     """
     Build covariance matrix using regime-dependent volatilities and fixed correlations.
     
@@ -146,11 +148,12 @@ def build_regime_covariance(regimes: dict, regime_volatilities: dict,
         regimes: Dict mapping sector -> current regime index
         regime_volatilities: Dict mapping sector -> {regime_idx -> volatility}
         fixed_correlations: Correlation matrix (n_sectors x n_sectors)
+        sector_order: Canonical ordering of sectors
         
     Returns:
         Covariance matrix (n_sectors x n_sectors)
     """
-    sectors = list(regimes.keys())
+    sectors = sector_order
     n_sectors = len(sectors)
     
     if fixed_correlations.shape != (n_sectors, n_sectors):
@@ -254,7 +257,7 @@ def update_agent_beliefs(prior_beliefs: dict,
 
 
 def compute_portfolio_moments(agent_beliefs: dict, regime_returns: dict, 
-                             regime_volatilities: dict, correlations: np.ndarray) -> tuple:
+                             regime_volatilities: dict, correlations: np.ndarray, sector_order: list[str]) -> tuple:
     """
     Compute expected returns and covariance matrix from agent beliefs.
     
@@ -267,11 +270,12 @@ def compute_portfolio_moments(agent_beliefs: dict, regime_returns: dict,
         regime_returns: Dict mapping sector -> {regime_idx -> expected_return}
         regime_volatilities: Dict mapping sector -> {regime_idx -> volatility}
         correlations: Fixed correlation matrix between sectors
+        sector_order: Canonical ordering of sectors
         
     Returns:
         Tuple of (expected_returns_vector, covariance_matrix)
     """
-    sectors = list(agent_beliefs.keys())
+    sectors = sector_order
     n_sectors = len(sectors)
     
     # Compute expected returns for each sector
@@ -380,8 +384,8 @@ def compute_knowledge_good_impact(buyer_state, knowledge_good, model_state):
     forecast = model_state.knowledge_good_forecasts[good_id]
     forecast_sector = forecast.sector
     
-    # Get all sectors for portfolio construction
-    sectors = list(model_state.current_regimes.keys())
+    # Get all sectors for portfolio construction using canonical ordering
+    sectors = model_state.sector_order
     if not sectors or forecast_sector not in sectors:
         return 0.0
 
@@ -403,7 +407,8 @@ def compute_knowledge_good_impact(buyer_state, knowledge_good, model_state):
         current_beliefs, 
         regime_returns, 
         regime_volatilities, 
-        model_state.regime_correlations
+        model_state.regime_correlations,
+        model_state.sector_order
     )
     weights_before = optimize_portfolio(
         expected_returns_before, cov_matrix_before, risk_aversion, risk_free_rate
@@ -420,7 +425,8 @@ def compute_knowledge_good_impact(buyer_state, knowledge_good, model_state):
         updated_beliefs, 
         regime_returns, 
         regime_volatilities, 
-        model_state.regime_correlations
+        model_state.regime_correlations,
+        model_state.sector_order
     )
     weights_after = optimize_portfolio(
         expected_returns_after, cov_matrix_after, risk_aversion, risk_free_rate
@@ -429,7 +435,7 @@ def compute_knowledge_good_impact(buyer_state, knowledge_good, model_state):
     # 4. Calculate actual returns based on current period data from regime history
     current_period_data = model_state.regime_history[model_state.current_period]
     sector_returns = np.array([current_period_data.returns[sector]
-                               for sector in current_period_data.returns])
+                               for sector in sectors])
 
     # 5. Calculate profits for both allocations
     profit_before = np.dot(weights_before, sector_returns)
@@ -927,16 +933,12 @@ def run_information_dynamics(model, info_cfg):
     """
     
     # a) Evolve underlying regime states
-    model.state.current_regimes = transition_regimes(
-        model.state.current_regimes, 
-        model.state.regime_transition_matrices
-    )
+    # Note: The regime history is precomputed and stored in model.state.regime_history
+    # We simply advance to the next period's regimes and take returns from there
+    model.state.current_regimes = model.state.regime_history[model.state.current_period].regimes
     
     # b) Generate regime-dependent returns
-    regime_returns = generate_regime_returns(
-        model.state.current_regimes,
-        model.state.regime_parameters
-    )
+    regime_returns = model.state.regime_history[model.state.current_period].returns
     
     # Update index values with regime-dependent returns
     for sector, return_val in regime_returns.items():
@@ -956,11 +958,12 @@ def model_step(model, config):
     "Top‑level model step, invoked once per tick (round)"
     
     if model.state.current_period  <= len(model.state.regime_history):
-        run_market_dynamics(model, config.market_params)
-        run_information_dynamics(model, config.info_params)
+        run_market_dynamics(model, config["market_config"])
+        run_information_dynamics(model, config.get("info_config", {}))
         # TODO: Handle stochastic arrival of news or shocks
         # allocate_budgets(model, config.budget_params)
         model.state.current_period += 1
+        model.tick += 1
     else:
        print("Current period exceeds regime history length. Check model setup. Model step skipped.")
 
@@ -971,11 +974,6 @@ def collect_stats(model):
         "average_price": sum(trade.price for trade in model.state.trades) / len(model.state.trades) if model.state.trades else 0,
     }
     return stats
-
-class RegimeParameters(BaseModel):
-    """Parameters for a single regime."""
-    mu: float = Field(..., description="Expected return for this regime")
-    sigma: float = Field(..., description="Volatility for this regime", gt=0)
 
 class ForecastData(BaseModel):
     """Structure for knowledge good forecast data."""
@@ -1070,6 +1068,12 @@ class SellerState(BaseModel):
     surplus: float = Field(default=0.0, description="Current period surplus")
     total_profits: float = Field(default=0.0, description="Cumulative profits over all periods")
 
+class MarketConfig(BaseModel):
+    """ Configuration parameters for the market model."""
+    choice_model: str = Field(default="logit_cart", description="Choice model type (e.g., 'greedy', 'logit_cart', 'knapsack')")
+    cart_draws: int | None = Field(default=None, description="Maximum number of draws in cart choice model (None for unlimited)", ge=1)
+    matching_rule: str = Field(default="non-rival", description="Market matching rule (e.g., 'non-rival')")
+
 class MarketState(BaseModel):
     """ Represents the state of a market in the simulation framework."""
     offers: list[Offer] = Field(..., description="List of offers available in the market")
@@ -1108,6 +1112,10 @@ class MarketState(BaseModel):
         default_factory=list,
         description="Canonical order of attributes for consistent attribute vector generation across all buyers"
     )
+    sector_order: list[str] = Field(
+        default_factory=list,
+        description="Canonical order of sectors for consistent portfolio and regime calculations"
+    )
     
     # Risk parameters
     risk_free_rate: float = Field(default=0.03, description="Risk-free rate for portfolio optimization", ge=0)
@@ -1122,8 +1130,14 @@ class MarketModel(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
     
     id: int = Field(..., description="Unique identifier for the market")
+    num_rounds: int = Field(..., description="Total number of rounds to simulate", gt=0)
+    tick: int = Field(default=0, description="Current tick/round of the simulation", ge=0)
     name: str = Field(..., description="Name of the market")
     agents: list = Field(..., description="List of agents participating in the market")
+    agent_metadata: dict = Field(default_factory=dict, description="Metadata for agents, mapped by agent ID")
+    chats: dict = Field(default_factory=dict, description="A mapping from chat ids to chat instances")
     state: MarketState = Field(..., description="Current state of the market, including prices, trades, and other relevant data")
     step: Callable = Field(..., description="Function to execute a step in the market model")
     collect_stats: Callable = Field(..., description="Function to collect statistics from the market model")
+    agent_results: list[dict] = Field(default_factory=list, description="Results or outputs from agents after simulation")
+    model_results: list[dict] = Field(default_factory=list, description="Results or outputs from the model after simulation")

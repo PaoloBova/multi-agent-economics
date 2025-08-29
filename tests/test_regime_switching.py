@@ -127,8 +127,9 @@ class TestStructuredCovariance:
             "finance": {0: 0.12, 1: 0.20}
         }
         fixed_correlations = np.array([[1.0, 0.3], [0.3, 1.0]])
+        sector_order = ["tech", "finance"]
         
-        cov_matrix = build_regime_covariance(regimes, regime_volatilities, fixed_correlations)
+        cov_matrix = build_regime_covariance(regimes, regime_volatilities, fixed_correlations, sector_order)
         
         assert cov_matrix.shape == (2, 2)
         assert np.allclose(cov_matrix, cov_matrix.T)  # Symmetric
@@ -157,8 +158,9 @@ class TestStructuredCovariance:
             [0.3, 1.0, 0.4],
             [0.2, 0.4, 1.0]
         ])
+        sector_order = ["tech", "finance", "healthcare"]
         
-        cov_matrix = build_regime_covariance(regimes, regime_volatilities, fixed_correlations)
+        cov_matrix = build_regime_covariance(regimes, regime_volatilities, fixed_correlations, sector_order)
         
         # Check positive definite by computing eigenvalues
         eigenvals = np.linalg.eigvals(cov_matrix)

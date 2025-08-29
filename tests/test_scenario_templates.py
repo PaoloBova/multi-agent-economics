@@ -480,7 +480,7 @@ class TestScenarioIntegration:
                 for regime, params in config.regime_parameters[sector].items()
             }
         
-        cov_matrix = build_regime_covariance(new_regimes, regime_volatilities, config.correlation_matrix)
+        cov_matrix = build_regime_covariance(new_regimes, regime_volatilities, config.correlation_matrix, config.sectors)
         assert cov_matrix.shape == (len(config.sectors), len(config.sectors))
         assert np.allclose(cov_matrix, cov_matrix.T)  # Symmetric
 

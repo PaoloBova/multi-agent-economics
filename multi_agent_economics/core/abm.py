@@ -3,8 +3,8 @@ import logging
 import numpy as np
 import pandas as pd
 import random
-from .utils import utils
-from .data_utils import data_utils
+import multi_agent_economics.core.utils as utils
+import multi_agent_economics.core.data_utils as data_utils
 import tqdm
 from typing import Dict, List, Union, Optional, Callable, Any
 
@@ -68,12 +68,12 @@ def init_agents(params, group_by_category=False, randomize=True):
 def run(model, parameters):
     logging.info(f"Starting simulation with {len(model.agents)} agents.")
     
-    model.collect_stats(parameters)
+    model.collect_stats(model, parameters)
     for _ in range(model.num_rounds):
         logging.info(f"Round {model.tick} begins.")
-        model.step(parameters)
+        model.step(model, parameters)
         #TODO: Allow more flexibility in when to collect what.
-        model.collect_stats(parameters)
+        model.collect_stats(model, parameters)
         logging.info(f"Round {model.tick} ends.")
         logging.info("-" * 50)
 

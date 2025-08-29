@@ -40,15 +40,33 @@ class HistoricalPerformanceResponse(BaseModel):
     recommendation: str = Field(..., description="Brief summary of data available for analysis")
 
 
+class AttributeAnalysis(BaseModel):
+    """Analysis result for a single attribute."""
+    attribute_name: str = Field(..., description="Name of the marketing attribute")
+    marginal_wtp_impact: Optional[float] = Field(None, description="Estimated marginal impact on WTP (regression coefficient)")
+    average_feature_value: Optional[float] = Field(None, description="Average feature value observed")
+    sample_size: int = Field(..., description="Number of observations for this attribute", ge=0)
+    confidence_level: Literal["low", "medium", "high"] = Field(..., description="Statistical confidence in the estimate")
+
+class WTPDataPoint(BaseModel):
+    """Individual willingness-to-pay observation."""
+    buyer_id: str = Field(..., description="Identifier for the buyer")
+    offer_attributes: Dict[str, Any] = Field(..., description="Marketing attributes of the test offer")
+    willingness_to_pay: float = Field(..., description="Calculated WTP for this buyer-offer combination")
+
 class BuyerPreferenceResponse(BaseModel):
     """Response model for buyer preference analysis tool."""
     sector: str = Field(..., description="Sector that was analyzed")
-    top_valued_attributes: List[Dict[str, Any]] = Field(..., description="Top 3 attributes buyers value most, ranked by importance")
+    analysis_method: Literal["regression", "descriptive", "insufficient_data"] = Field(..., description="Method used for analysis")
+    attribute_insights: List[AttributeAnalysis] = Field(default_factory=list, description="Statistical insights for each attribute")
+    regression_r_squared: Optional[float] = Field(None, description="R-squared value for regression analysis (if applicable)")
+    raw_wtp_data: List[WTPDataPoint] = Field(default_factory=list, description="Raw WTP observations (if requested)")
     sample_size: int = Field(..., description="Number of buyers analyzed", ge=0)
+    total_observations: int = Field(..., description="Total buyer-offer combinations tested", ge=0)
     quality_tier: Literal["low", "medium", "high"] = Field(..., description="Quality tier based on effort")
     effort_used: float = Field(..., description="Actual effort used after budget constraints", ge=0)
     warnings: List[str] = Field(default_factory=list, description="Any warnings or data limitations")
-    recommendation: str = Field(..., description="Actionable recommendation for attribute focus")
+    recommendation: str = Field(..., description="Actionable recommendation based on analysis")
 
 
 class CompetitivePricingResponse(BaseModel):

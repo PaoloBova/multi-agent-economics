@@ -29,22 +29,22 @@ def create_economic_tools(market_model, config_data: Dict[str, Any]) -> List[Fun
         
         # Budget management
         market_state = market_model.state
-        agent_id = config_data.get('agent_id')
-        if not agent_id:
+        org_id = config_data.get('org_id')
+        if not org_id:
             raise ValueError("Agent ID not found in config_data")
-        available_budget = market_state.budgets.get(agent_id, 0.0)
+        available_budget = market_state.budgets.get(org_id, 0.0)
         
         if effort > available_budget:
             effort = available_budget  # Limit effort to available budget
         
         # Deduct budget
-        market_state.budgets[agent_id] = available_budget - effort
+        market_state.budgets[org_id] = available_budget - effort
         
         # Record action
         if hasattr(market_state, 'tool_usage'):
-            if agent_id not in market_state.tool_usage:
-                market_state.tool_usage[agent_id] = []
-            market_state.tool_usage[agent_id].append({
+            if org_id not in market_state.tool_usage:
+                market_state.tool_usage[org_id] = []
+            market_state.tool_usage[org_id].append({
                 "tool": tool_name, "effort": effort
             })
         
@@ -108,7 +108,6 @@ def create_economic_tools(market_model, config_data: Dict[str, Any]) -> List[Fun
     # Return tools
     return [
         FunctionTool(sector_forecast, description="Generate sector growth forecast"),
-        FunctionTool(monte_carlo_var, description="Calculate portfolio Value at Risk"), 
         FunctionTool(post_to_market, description="Price structured financial instruments"),
         FunctionTool(analyze_historical_performance, description="Analyze historical performance-revenue relationships"),
         FunctionTool(analyze_buyer_preferences, description="Analyze buyer preference patterns"),

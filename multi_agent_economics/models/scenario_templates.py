@@ -15,6 +15,7 @@ Templates available:
 import numpy as np
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
+from multi_agent_economics.models.schema import RegimeParameters
 
 
 @dataclass
@@ -24,7 +25,7 @@ class ScenarioConfig:
     description: str
     sectors: List[str]
     initial_regimes: Dict[str, int]
-    regime_parameters: Dict[str, Dict[int, Dict[str, float]]]
+    regime_parameters: Dict[str, Dict[int, RegimeParameters]]
     transition_matrices: Dict[str, np.ndarray]
     correlation_matrix: np.ndarray
     market_volatility_level: float
@@ -74,26 +75,26 @@ def generate_crisis_scenario(sectors: Optional[List[str]] = None,
         if sector == "tech":
             # Tech is most volatile in crisis
             regime_parameters[sector] = {
-                0: {"mu": base_normal_return * 1.5, "sigma": normal_volatility * 1.2},  # Tech boom
-                1: {"mu": base_crisis_return * 1.8, "sigma": crisis_volatility * 1.4}   # Tech bust
+                0: RegimeParameters(mu=base_normal_return * 1.5, sigma=normal_volatility * 1.2),  # Tech boom
+                1: RegimeParameters(mu=base_crisis_return * 1.8, sigma=crisis_volatility * 1.4)   # Tech bust
             }
         elif sector == "finance":
             # Finance is epicenter of crisis
             regime_parameters[sector] = {
-                0: {"mu": base_normal_return, "sigma": normal_volatility},
-                1: {"mu": base_crisis_return * 2.0, "sigma": crisis_volatility * 1.5}  # Severe crisis
+                0: RegimeParameters(mu=base_normal_return, sigma=normal_volatility),  # Stable
+                1: RegimeParameters(mu=base_crisis_return * 2.0, sigma=crisis_volatility * 1.5)  # Severe crisis
             }
         elif sector == "healthcare":
             # Healthcare is defensive
             regime_parameters[sector] = {
-                0: {"mu": base_normal_return * 0.8, "sigma": normal_volatility * 0.7},  # Stable
-                1: {"mu": base_crisis_return * 0.3, "sigma": crisis_volatility * 0.6}   # Less affected
+                0: RegimeParameters(mu=base_normal_return * 0.8, sigma=normal_volatility * 0.7),  # Stable
+                1: RegimeParameters(mu=base_crisis_return * 0.3, sigma=crisis_volatility * 0.6)   # Less affected
             }
         else:
             # Default parameters for other sectors
             regime_parameters[sector] = {
-                0: {"mu": base_normal_return, "sigma": normal_volatility},
-                1: {"mu": base_crisis_return, "sigma": crisis_volatility}
+                0: RegimeParameters(mu=base_normal_return, sigma=normal_volatility),
+                1: RegimeParameters(mu=base_crisis_return, sigma=crisis_volatility)
             }
     
     # Transition matrices: Crisis is persistent, recovery is slow
@@ -177,26 +178,26 @@ def generate_boom_scenario(sectors: Optional[List[str]] = None,
         if sector == "tech":
             # Tech leads the boom
             regime_parameters[sector] = {
-                0: {"mu": base_boom_return * 1.6, "sigma": boom_volatility * 1.1},  # Tech boom
-                1: {"mu": base_normal_return, "sigma": normal_volatility * 1.2}     # Tech correction
+                0: RegimeParameters(mu=base_boom_return * 1.6, sigma=boom_volatility * 1.1),  # Tech boom
+                1: RegimeParameters(mu=base_normal_return * 1.0, sigma=normal_volatility * 1.2)  # Tech correction
             }
         elif sector == "finance":
             # Finance benefits from boom
             regime_parameters[sector] = {
-                0: {"mu": base_boom_return * 1.2, "sigma": boom_volatility},
-                1: {"mu": base_normal_return * 0.7, "sigma": normal_volatility}
+                0: RegimeParameters(mu=base_boom_return * 1.2, sigma=boom_volatility),  # Finance boom
+                1: RegimeParameters(mu=base_normal_return * 0.7, sigma=normal_volatility)   # Finance correction
             }
         elif sector == "healthcare":
             # Healthcare steady growth
             regime_parameters[sector] = {
-                0: {"mu": base_boom_return * 0.8, "sigma": boom_volatility * 0.9},
-                1: {"mu": base_normal_return * 0.8, "sigma": normal_volatility * 0.8}
+                0: RegimeParameters(mu=base_boom_return * 0.8, sigma=boom_volatility * 0.9),  # Healthcare boom
+                1: RegimeParameters(mu=base_normal_return * 0.8, sigma=normal_volatility * 0.8)   # Healthcare correction
             }
         else:
             # Default boom parameters
             regime_parameters[sector] = {
-                0: {"mu": base_boom_return, "sigma": boom_volatility},
-                1: {"mu": base_normal_return, "sigma": normal_volatility}
+                0: RegimeParameters(mu=base_boom_return, sigma=boom_volatility),
+                1: RegimeParameters(mu=base_normal_return, sigma=normal_volatility)
             }
     
     # Transition matrices: Boom is persistent but can correct
@@ -287,20 +288,20 @@ def generate_tech_shock_scenario(sectors: Optional[List[str]] = None,
             tech_bust_vol = 0.45 * abs(shock_magnitude)
             
             regime_parameters[sector] = {
-                0: {"mu": tech_boom_return, "sigma": tech_boom_vol},    # Tech boom
-                1: {"mu": tech_bust_return, "sigma": tech_bust_vol}     # Tech bust
+                0: RegimeParameters(mu=tech_boom_return, sigma=tech_boom_vol),    # Tech boom
+                1: RegimeParameters(mu=tech_bust_return, sigma=tech_bust_vol)     # Tech bust
             }
         elif sector == "finance":
             # Finance somewhat correlated with tech
             regime_parameters[sector] = {
-                0: {"mu": base_return * 1.1, "sigma": base_volatility},
-                1: {"mu": base_return * 0.6, "sigma": base_volatility * 1.2}
+                0: RegimeParameters(mu=base_return * 1.1, sigma=base_volatility),
+                1: RegimeParameters(mu=base_return * 0.6, sigma=base_volatility * 1.2)
             }
         else:
             # Other sectors less affected
             regime_parameters[sector] = {
-                0: {"mu": base_return, "sigma": base_volatility},
-                1: {"mu": base_return * 0.8, "sigma": base_volatility * 1.1}
+                0: RegimeParameters(mu=base_return, sigma=base_volatility),
+                1: RegimeParameters(mu=base_return * 0.8, sigma=base_volatility * 1.1)
             }
     
     # Transition matrices: Tech regime persists, others more stable
@@ -393,8 +394,8 @@ def generate_decoupling_scenario(sectors: Optional[List[str]] = None,
     for sector in sectors:
         # Amplify regime differences
         regime_parameters[sector] = {
-            0: {"mu": base_return_high, "sigma": base_vol_low},   # High return, low vol
-            1: {"mu": base_return_low, "sigma": base_vol_high}   # Low return, high vol
+            0: RegimeParameters(mu=base_return_high, sigma=base_vol_low),   # High return, low vol
+            1: RegimeParameters(mu=base_return_low, sigma=base_vol_high)   # Low return, high vol
         }
     
     # Transition matrices: Regimes tend to persist (maintain decoupling)
@@ -518,8 +519,8 @@ def get_scenario_summary(config: ScenarioConfig) -> Dict[str, Any]:
     
     for sector_params in config.regime_parameters.values():
         for regime_params in sector_params.values():
-            all_returns.append(regime_params["mu"])
-            all_volatilities.append(regime_params["sigma"])
+            all_returns.append(regime_params.mu)
+            all_volatilities.append(regime_params.sigma)
     
     avg_correlation = np.mean(config.correlation_matrix[np.triu_indices_from(config.correlation_matrix, k=1)])
     

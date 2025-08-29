@@ -41,8 +41,9 @@ def test_mixture_covariance_calculation():
     correlations = np.array([[1.0, 0.3], [0.3, 1.0]])  # 30% correlation
     
     # Compute results
+    sector_order = ["tech", "finance"]  # Canonical ordering
     expected_returns, covariance_matrix = compute_portfolio_moments(
-        agent_beliefs, regime_returns, regime_volatilities, correlations
+        agent_beliefs, regime_returns, regime_volatilities, correlations, sector_order
     )
     
     # Expected returns should be: E[R] = Σₖ P(k) * μᵏ
@@ -124,8 +125,9 @@ def test_mixture_vs_naive_approximation():
     correlations = np.array([[1.0, 0.5], [0.5, 1.0]])
     
     # Compute mixture covariance
+    sector_order = ["tech", "finance"]  # Canonical ordering
     _, mixture_cov = compute_portfolio_moments(
-        agent_beliefs, regime_returns, regime_volatilities, correlations
+        agent_beliefs, regime_returns, regime_volatilities, correlations, sector_order
     )
     
     # Compute naive approximation: E[σᵢ] * E[σⱼ] * ρᵢⱼ
@@ -164,8 +166,9 @@ def test_single_regime_equivalence():
     
     correlations = np.array([[1.0, 0.4], [0.4, 1.0]])
     
+    sector_order = ["tech", "finance"]  # Canonical ordering
     expected_returns, covariance_matrix = compute_portfolio_moments(
-        agent_beliefs, regime_returns, regime_volatilities, correlations
+        agent_beliefs, regime_returns, regime_volatilities, correlations, sector_order
     )
     
     # With single regime, should equal standard covariance calculation
