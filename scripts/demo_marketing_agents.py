@@ -57,12 +57,12 @@ def setup_logging(log_file: Path):
     logging.getLogger('asyncio').setLevel(logging.WARNING)              # Reduces async task logs
 
     # Keep useful logs at INFO level (artifact operations, demo progress, errors)
-    logger = logging.getLogger('demo_artifact_tools')
+    logger = logging.getLogger('demo_marketing_agents')
     logging.getLogger('artifacts.tools').setLevel(logging.INFO)         # Artifact tool operations
     logging.getLogger('autogen_core').setLevel(logging.INFO)            # Core AutoGen operations (non-events)
     return logger
 
-logger = setup_logging(Path("./demo_marketing_agents.log"))
+# logger will be set up in main function
 
 def termination_condition(messages: str) -> bool:
     """Determine if the chat should terminate based on the message."""
@@ -303,6 +303,8 @@ def assign_forecasts_to_agents(market_model: MarketModel, config: dict):
 def create_ai_chats(market_model: MarketModel, config: dict):
     """Create AI chats to persist agent conversations."""
     
+    logger = logging.getLogger('demo_marketing_agents')
+    logger.info("Creating AI chats")
         
     # In this demo, agents are sellers powered by LLMs to make marketing decisions.
 
@@ -351,9 +353,8 @@ def create_ai_chats(market_model: MarketModel, config: dict):
         chats[chat_id] = RoundRobinGroupChat(agents=[agent],
                                    max_turns=config["max_chat_turns_single_agent"],
                                    termination_condition=conditions.StopMessageTermination())
-    
-    market_model.chats = chats
-    return
+
+    return chats
 
 def derive_org_performance(market_model: MarketModel, org_id: str) -> str:
     """Derive organization-specific performance information."""
@@ -372,6 +373,7 @@ def derive_public_market_info(market_model: MarketModel, org_id: str) -> str:
 def run_ai_agents(market_model: MarketModel, config: dict):
     """Run the AI agents to make marketing decisions."""
     
+    logger = logging.getLogger('demo_marketing_agents')
     logger.info(f"Starting run_ai_agents with {len(market_model.chats)} chats")
     
     # Start with group chats only. Run through each chat in sequence
@@ -411,7 +413,10 @@ def run_ai_agents(market_model: MarketModel, config: dict):
 def run_model_step(market_model: MarketModel, config: dict):
     """Run a single step of the market model."""
     
+    logger = logging.getLogger('demo_marketing_agents')
+    logger.info(f"run_model_step called for tick {market_model.tick}")
     assign_forecasts_to_agents(market_model, config)
+    logger.info("Forecasts assigned, about to run AI agents")
 
     run_ai_agents(market_model, config)
 
@@ -436,6 +441,14 @@ def run_demo_simulation():
     
     # Load environment variables
     load_dotenv()
+    
+    # Setup logging for debugging
+    log_file = Path("./demo_marketing_agents.log")
+    print(f"Setting up logging to: {log_file.absolute()}")
+    logger = setup_logging(log_file)
+    print("Logging setup complete")
+    logger.info("Demo simulation starting")
+    print("Logged demo starting message")
     
     # Initialise model
 
@@ -509,7 +522,7 @@ def run_demo_simulation():
     market_state = create_market_state()
     model = MarketModel(
       id=1,
-      num_rounds=1,
+      num_rounds=2,
       name="marketing_demo",
       agents=[],
       agent_metadata={},
@@ -518,10 +531,13 @@ def run_demo_simulation():
       collect_stats=collect_stats_demo)
     
     agents, agent_metadata = create_agents(model, config)
-    chats = create_ai_chats(model, config)
     model.agents = agents
     model.agent_metadata = agent_metadata
+    
+    logger.info("About to create AI chats")
+    chats = create_ai_chats(model, config)
     model.chats = chats
+    logger.info(f"Created {len(model.chats)} chats")
 
     abm.run(model, config)
 

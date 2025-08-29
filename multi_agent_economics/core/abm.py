@@ -46,7 +46,7 @@ def init_agents(params, group_by_category=False, randomize=True):
     if randomize:
         # Randomize order of agent specs
         random.shuffle(agent_specs)
-    i == 0
+    i = 0
     for spec in agent_specs:
         agent_class = spec['agent_class']
         num_agents = spec.get('num_agents', 1)
