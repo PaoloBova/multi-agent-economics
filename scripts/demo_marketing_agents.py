@@ -60,6 +60,9 @@ def setup_logging(log_file: Path):
     logger = logging.getLogger('demo_artifact_tools')
     logging.getLogger('artifacts.tools').setLevel(logging.INFO)         # Artifact tool operations
     logging.getLogger('autogen_core').setLevel(logging.INFO)            # Core AutoGen operations (non-events)
+    return logger
+
+logger = setup_logging(Path("./demo_marketing_agents.log"))
 
 def termination_condition(messages: str) -> bool:
     """Determine if the chat should terminate based on the message."""
@@ -316,7 +319,7 @@ def create_ai_chats(market_model: MarketModel, config: dict):
     def group_agents_by_metadata_key(model, key):
         """Group agents by a specified metadata key."""
         groups = {}
-        for metadata in zip(model.agent_metadata):
+        for metadata in model.agent_metadata.values():
             agent = model.agents[metadata['agent_index']]
             group = metadata[key]
             if group not in groups:
@@ -328,7 +331,8 @@ def create_ai_chats(market_model: MarketModel, config: dict):
     # We have a chat per organization
     chats = {}
 
-    for org_id, group in group_agents_by_metadata_key(market_model, 'org_id').items():
+    agent_groups_by_org = group_agents_by_metadata_key(market_model, 'org_id')
+    for org_id, group in agent_groups_by_org.items():
         # Create a chat for the organization
         termination_condition = conditions.FunctionalTermination(termination_condition)
         chat_id = f"org_chat_{org_id}"
@@ -368,10 +372,14 @@ def derive_public_market_info(market_model: MarketModel, org_id: str) -> str:
 def run_ai_agents(market_model: MarketModel, config: dict):
     """Run the AI agents to make marketing decisions."""
     
+    logger.info(f"Starting run_ai_agents with {len(market_model.chats)} chats")
+    
     # Start with group chats only. Run through each chat in sequence
     
     for chat_id, chat in market_model.chats.items():
-        if chat_id .starts_with("org_chat_"):
+        logger.info(f"Processing chat {chat_id}, type: {type(chat_id)}")
+        if chat_id.startswith("org_chat_"):
+            logger.info(f"Running chat {chat_id} with {len(chat.agents)} agents.")
             print(f"Running chat {chat_id} with {len(chat.agents)} agents.")
             budget_balance = 10.0  # For demo, we just refill balance each period
             org_id = market_model.agent_metadata[chat.agents[0].name]['org_id']
@@ -384,8 +392,12 @@ def run_ai_agents(market_model: MarketModel, config: dict):
                 market_info_public=market_info_public,
                 current_forecast=current_forecast
             )
+            logger.info(f"About to run chat {chat_id} with task prompt")
             chat.run(task=task_prompt)
+            logger.info(f"Chat {chat_id} completed.")
             print(f"Chat {chat_id} completed.")
+        else:
+            logger.info(f"Skipping chat {chat_id} (not org_chat)")
     
     # We are only running org group chats which perfectly seperate agents. So,
     # we have no need to save and load state between chats and between rounds.
@@ -393,6 +405,7 @@ def run_ai_agents(market_model: MarketModel, config: dict):
     # TODO: Validate that all groups have posted an offer. If not, raise a
     # warning.
     
+    logger.info("run_ai_agents completed")
     return
 
 def run_model_step(market_model: MarketModel, config: dict):
@@ -423,9 +436,6 @@ def run_demo_simulation():
     
     # Load environment variables
     load_dotenv()
-    # Setup logging for debugging
-    log_file = Path("./demo_marketing_agents.log")
-    setup_logging(log_file)
     
     # Initialise model
 
@@ -508,8 +518,10 @@ def run_demo_simulation():
       collect_stats=collect_stats_demo)
     
     agents, agent_metadata = create_agents(model, config)
+    chats = create_ai_chats(model, config)
     model.agents = agents
     model.agent_metadata = agent_metadata
+    model.chats = chats
 
     abm.run(model, config)
 
