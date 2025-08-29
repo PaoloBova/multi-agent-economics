@@ -38,6 +38,7 @@ from multi_agent_economics.core.artifacts import ArtifactManager
 from multi_agent_economics.core.workspace_memory import WorkspaceMemory
 from multi_agent_economics.tools.artifacts import create_artifact_tools
 from multi_agent_economics.tools.economic import create_economic_tools
+from multi_agent_economics.tools.implementations.economic import sector_forecast_impl
         
 def setup_logging(log_file: Path):
     """Setup logging configuration."""
@@ -175,7 +176,7 @@ def create_agents(model, config):
     """Create agents and added context variables."""
 
     quality_distribution = config['quality_distribution']
-    quality_types = list(config['type_quality_mapping'].keys())
+    quality_types = list(config['quality_type_effort_mapping'].keys())
     org_ids = config['org_ids']
     sectors = config['sectors']
     model_clients = config['model_clients']
@@ -202,7 +203,8 @@ def create_agents(model, config):
         
         system_message = Path("./scripts/prompt_templates/system_prompt_marketing_task.md").read_text().format(
             org_name=org_id,
-            org_description="A leading provider of financial market forecasts."
+            org_description="A leading provider of financial market forecasts.",
+            marketing_attributes=model.state.marketing_attribute_definitions
         )
         reflect_on_tool_use = base_assistant_agent_config["reflect_on_tool_use"]
         max_tool_iterations = base_assistant_agent_config["max_tool_iterations"]
@@ -273,7 +275,7 @@ def collect_stats_demo(model, config):
     # Count by band of marketing characteristics and price ranges
     
     # Collect trade counts by quality type
-    quality_types = list(config['type_quality_mapping'].keys())
+    quality_types = list(config['quality_type_effort_mapping'].keys())
     trade_counts = {qtype: 0 for qtype in quality_types}
     for trade in model.state.trades:
         trade.org_id = trade.seller_id
@@ -291,13 +293,10 @@ def assign_forecasts_to_agents(market_model: MarketModel, config: dict):
     for _agent_id, agent_metadata in market_model.agent_metadata.items():
         # Assign forecasts based on quality type
         quality_type = agent_metadata['quality_type']
-        forecast_quality = config['type_quality_mapping'][quality_type]
-        confusion_matrix = market_for_finance.build_confusion_matrix(forecast_quality, K=2)
-        assigned_forecast = market_for_finance.generate_forecast_signal(
-            true_next_regime,
-            confusion_matrix
-        )
-        agent_metadata['assigned_forecast'] = assigned_forecast
+        effort = config['quality_type_effort_mapping'][quality_type]
+        sector = "tech"
+        sector_forecast_response = sector_forecast_impl(market_model, config, sector, 1, effort)
+        agent_metadata['assigned_forecast'] = sector_forecast_response
     
     return
 
@@ -396,7 +395,6 @@ async def run_ai_agents_async(market_model: MarketModel, config: dict):
                 current_forecast=current_forecast
             )
             logger.info(f"About to run chat {chat_id} with task prompt")
-            chat.run(task=task_prompt)
             result = await Console(chat.run_stream(task=task_prompt))  # Stream the messages to the console.
         
             logger.info(f"Chat {chat_id} completed.")
@@ -468,10 +466,10 @@ def run_demo_simulation():
             'medium_quality': {'mean': 4.0, 'std': 1.0},
             'low_quality': {'mean': 1.5, 'std': 0.5}
         },
-        'type_quality_mapping': {
-            'high_quality': 0.9,
-            'medium_quality': 0.7,
-            'low_quality': 0.5
+        'quality_type_effort_mapping': {
+            'high_quality': 5.0,
+            'medium_quality': 3.0,
+            'low_quality': 1.0
         },
         
         "quality_distribution": [0.2, 0.3, 0.5],  # Probabilities for high, medium, low quality

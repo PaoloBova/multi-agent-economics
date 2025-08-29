@@ -67,8 +67,6 @@ def create_economic_tools(market_model, config_data: Dict[str, Any]) -> List[Fun
         marketing_attributes: Annotated[Dict[str, Any], "Marketing attributes associated with good."],
     ) -> PostToMarketResponse:
         """Price structured financial instruments and post to market."""
-        
-        effort = handle_budget(market_model, config_data, effort, "post_to_market")
         return post_to_market_impl(market_model, config_data, forecast_id, price, marketing_attributes)
     
     

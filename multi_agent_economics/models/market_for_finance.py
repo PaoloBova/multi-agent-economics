@@ -977,6 +977,7 @@ def collect_stats(model):
 
 class ForecastData(BaseModel):
     """Structure for knowledge good forecast data."""
+    forecast_id: str = Field(..., description="Unique identifier for the forecast")
     sector: str = Field(..., description="Sector being forecasted")
     predicted_regime: int = Field(..., description="Predicted regime index", ge=0)
     confidence_vector: list[float] = Field(..., description="Confidence probabilities for each regime")
