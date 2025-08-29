@@ -21,6 +21,7 @@ from datetime import datetime
 from autogen_agentchat.agents import AssistantAgent
 import autogen_agentchat.conditions as conditions
 from autogen_agentchat.teams import RoundRobinGroupChat
+from autogen_agentchat.ui import Console
 from autogen_ext.models.openai import OpenAIChatCompletionClient
 
 # Add project root to path
@@ -64,7 +65,7 @@ def setup_logging(log_file: Path):
 
 # logger will be set up in main function
 
-def termination_condition(messages: str) -> bool:
+def terminate_chat(messages: str) -> bool:
     """Determine if the chat should terminate based on the message."""
     try:
         posted_offer = PostToMarketResponse.model_validate_json(messages[-1])
@@ -336,9 +337,9 @@ def create_ai_chats(market_model: MarketModel, config: dict):
     agent_groups_by_org = group_agents_by_metadata_key(market_model, 'org_id')
     for org_id, group in agent_groups_by_org.items():
         # Create a chat for the organization
-        termination_condition = conditions.FunctionalTermination(termination_condition)
+        termination_condition = conditions.FunctionalTermination(terminate_chat)
         chat_id = f"org_chat_{org_id}"
-        chats[chat_id] = RoundRobinGroupChat(agents= group,
+        chats[chat_id] = RoundRobinGroupChat(participants=group,
                                              max_turns=config["max_chat_turns"],
                                              termination_condition=termination_condition)
     
@@ -350,7 +351,7 @@ def create_ai_chats(market_model: MarketModel, config: dict):
     
     for agent in market_model.agents:
         chat_id = f"single_agent_chat_{agent.name}"
-        chats[chat_id] = RoundRobinGroupChat(agents=[agent],
+        chats[chat_id] = RoundRobinGroupChat(participants=[agent],
                                    max_turns=config["max_chat_turns_single_agent"],
                                    termination_condition=conditions.StopMessageTermination())
 
@@ -370,7 +371,7 @@ def derive_public_market_info(market_model: MarketModel, org_id: str) -> str:
                             for sector, value in market_model.state.index_values.items()])
     return (f"Current index values by sector: {index_info}, ")
 
-def run_ai_agents(market_model: MarketModel, config: dict):
+async def run_ai_agents_async(market_model: MarketModel, config: dict):
     """Run the AI agents to make marketing decisions."""
     
     logger = logging.getLogger('demo_marketing_agents')
@@ -381,13 +382,13 @@ def run_ai_agents(market_model: MarketModel, config: dict):
     for chat_id, chat in market_model.chats.items():
         logger.info(f"Processing chat {chat_id}, type: {type(chat_id)}")
         if chat_id.startswith("org_chat_"):
-            logger.info(f"Running chat {chat_id} with {len(chat.agents)} agents.")
-            print(f"Running chat {chat_id} with {len(chat.agents)} agents.")
+            logger.info(f"Running chat {chat_id} with {len(chat._participants)} agents.")
+            print(f"Running chat {chat_id} with {len(chat._participants)} agents.")
             budget_balance = 10.0  # For demo, we just refill balance each period
-            org_id = market_model.agent_metadata[chat.agents[0].name]['org_id']
+            org_id = market_model.agent_metadata[chat._participants[0].name]['org_id']
             org_performance = derive_org_performance(market_model, org_id)
             market_info_public = derive_public_market_info(market_model, org_id)
-            current_forecast = market_model.agent_metadata[chat.agents[0].name]['assigned_forecast']
+            current_forecast = market_model.agent_metadata[chat._participants[0].name]['assigned_forecast']
             task_prompt = Path("./scripts/prompt_templates/marketing_task.md").read_text().format(
                 budget_balance=budget_balance,
                 org_performance=org_performance,
@@ -396,6 +397,8 @@ def run_ai_agents(market_model: MarketModel, config: dict):
             )
             logger.info(f"About to run chat {chat_id} with task prompt")
             chat.run(task=task_prompt)
+            result = await Console(chat.run_stream(task=task_prompt))  # Stream the messages to the console.
+        
             logger.info(f"Chat {chat_id} completed.")
             print(f"Chat {chat_id} completed.")
         else:
@@ -408,6 +411,11 @@ def run_ai_agents(market_model: MarketModel, config: dict):
     # warning.
     
     logger.info("run_ai_agents completed")
+    return
+
+def run_ai_agents(market_model: MarketModel, config: dict):
+    """Run the AI agents to make marketing decisions."""
+    asyncio.run(run_ai_agents_async(market_model, config))
     return
 
 def run_model_step(market_model: MarketModel, config: dict):
