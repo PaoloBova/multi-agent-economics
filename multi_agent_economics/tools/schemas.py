@@ -17,7 +17,7 @@ class SectorForecastResponse(BaseModel):
     """Response model for sector forecast tool."""
     sector: str = Field(..., description="Sector that was forecasted")
     forecast: ForecastData = Field(..., description="Forecast data with regime prediction and confidence")
-    quality_tier: Literal["low", "medium", "high"] = Field(..., description="Quality tier based on effort")
+    quality_attributes: Dict[str, Any] = Field(..., description="Quality attributes of the forecast (methodology, coverage)")
     effort_used: float = Field(..., description="Actual effort used after budget constraints", ge=0)
 
 class PostToMarketResponse(BaseModel):

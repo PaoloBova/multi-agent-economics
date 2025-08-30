@@ -44,20 +44,26 @@ def sector_forecast_impl(
     state = market_model.state
     tool_params = config_data.get("tool_parameters", {}).get("sector_forecast", {})
     
-    # Map effort to quality tier
+    # Map effort to quality attributes and forecast accuracy
     effort_thresholds = tool_params.get("effort_thresholds", {"high": 5.0, "medium": 2.0})
     if effort >= effort_thresholds.get("high", 5.0):
-        quality_tier = "high"
+        methodology = "premium"
+        coverage = np.random.uniform(0.8, 1.0)  # High-quality coverage
+        forecast_quality = 0.9
     elif effort >= effort_thresholds.get("medium", 2.0):
-        quality_tier = "medium"
+        methodology = "standard" 
+        coverage = np.random.uniform(0.5, 0.7)  # Medium-quality coverage
+        forecast_quality = 0.7
     else:
-        quality_tier = "low"
+        methodology = "basic"
+        coverage = np.random.uniform(0.1, 0.4)  # Low-quality coverage
+        forecast_quality = 0.5
     
-    # Map quality tier to accuracy parameter
-    effort_level_quality_mapping = tool_params.get("effort_level_quality_mapping", {
-        "high": 0.9, "medium": 0.7, "low": 0.5
-    })
-    forecast_quality = effort_level_quality_mapping.get(quality_tier, 0.5)
+    # Create quality attributes dict
+    quality_attributes = {
+        "methodology": methodology,
+        "coverage": coverage
+    }
     
     # Get current regime for the sector
     current_regime = state.current_regimes.get(sector, 0)
@@ -113,7 +119,7 @@ def sector_forecast_impl(
     return SectorForecastResponse(
         sector=sector,
         forecast=forecast_data,
-        quality_tier=quality_tier,
+        quality_attributes=quality_attributes,
         effort_used=effort
     )
 

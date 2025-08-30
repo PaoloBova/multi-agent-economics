@@ -726,7 +726,7 @@ def assign_forecasts_to_sellers(market_model: MarketModel, sellers: List[Akerlof
             'forecast_id': forecast_id,
             'effort_used': effort_numeric,
             'quality_type': quality_type,
-            'quality_tier': forecast_response.quality_tier
+            'quality_attributes': forecast_response.quality_attributes
         }
 
 

@@ -829,19 +829,27 @@ class TestSectorForecast:
         assert isinstance(result, SectorForecastResponse)
         assert result.sector == "tech"
         assert result.effort_used == 3.0
-        assert result.quality_tier in ["low", "medium", "high"]
+        assert "methodology" in result.quality_attributes
+        assert "coverage" in result.quality_attributes
+        assert result.quality_attributes["methodology"] in ["basic", "standard", "premium"]
+        assert 0.0 <= result.quality_attributes["coverage"] <= 1.0
         assert hasattr(result, 'forecast')
         assert result.forecast.sector == "tech"
         
     def test_effort_quality_mapping(self, market_model, tool_config):
-        """Test effort maps to correct quality tiers."""
+        """Test effort maps to correct quality attributes."""
         low_result = sector_forecast_impl(market_model, tool_config, "tech", 1, 1.0)
         medium_result = sector_forecast_impl(market_model, tool_config, "tech", 1, 3.0) 
         high_result = sector_forecast_impl(market_model, tool_config, "tech", 1, 6.0)
         
-        assert low_result.quality_tier == "low"
-        assert medium_result.quality_tier == "medium"
-        assert high_result.quality_tier == "high"
+        assert low_result.quality_attributes["methodology"] == "basic"
+        assert medium_result.quality_attributes["methodology"] == "standard"
+        assert high_result.quality_attributes["methodology"] == "premium"
+        
+        # Check coverage ranges
+        assert 0.1 <= low_result.quality_attributes["coverage"] <= 0.4
+        assert 0.5 <= medium_result.quality_attributes["coverage"] <= 0.7
+        assert 0.8 <= high_result.quality_attributes["coverage"] <= 1.0
         
         # Higher effort should produce more accurate forecasts (higher confidence)
         assert np.max(high_result.forecast.confidence_vector) >= np.max(low_result.forecast.confidence_vector)
