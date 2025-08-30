@@ -19,7 +19,7 @@ classifiers = [
 python = "^3.12"
 # Core AutoGen dependencies
 autogen-agentchat = "^0.6.4"
-autogen-ext = {version = "^0.6.4", extras = ["openai"]}
+autogen-ext = {version = "^0.6.4", extras = ["openai", "anthropic"]}
 # Essential for the project
 dvc = "^3.0.0"
 pydantic = "^2.0.0"

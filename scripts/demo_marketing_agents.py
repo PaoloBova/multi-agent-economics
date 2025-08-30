@@ -23,6 +23,7 @@ import autogen_agentchat.conditions as conditions
 from autogen_agentchat.teams import RoundRobinGroupChat
 from autogen_agentchat.ui import Console
 from autogen_ext.models.openai import OpenAIChatCompletionClient
+from autogen_ext.models.anthropic import AnthropicChatCompletionClient
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -165,10 +166,27 @@ def create_model_client_openai(args) -> OpenAIChatCompletionClient:
     )
     return model_client
 
+def create_model_client_anthropic(args) -> AnthropicChatCompletionClient:
+    """Create an Anthropic model client."""
+        # Check for Anthropic API key
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        print("❌ ANTHROPIC_API_KEY not found in environment")
+        print("Please add your ANTHROPIC API key to .env file")
+        raise ValueError("ANTHROPIC_API_KEY not found in environment")
+    # Create ANTHROPIC_API_KEY model client
+    model_client = AnthropicChatCompletionClient(
+        model=args["model_name"],
+        api_key=api_key
+    )
+    return model_client
+
 def create_model_client(args):
     """Create a model client based on the specified type."""
     if args["model_type"] == "openai":
         return create_model_client_openai(args)
+    elif args["model_type"] == "anthropic":
+        return create_model_client_anthropic(args)
     else:
         raise ValueError(f"Unsupported model type: {args['model_type']}")
 
@@ -193,13 +211,14 @@ def create_agents(model, config):
     artifact_manager = ArtifactManager(artifact_manager_path)
     
     for agent_id in range(n_agents):
-        model_name = np.random.choice(model_clients)
+        model_client_data = np.random.choice(model_clients)
+        model_name, model_type = model_client_data.get("model_name"), model_client_data.get("model_type")
         org_id = np.random.choice(org_ids)
         quality_type = np.random.choice(quality_types, p=quality_distribution)
         sector = np.random.choice(sectors)
         agent_name = f"seller_{agent_id}_{org_id}"
         
-        model_client = create_model_client({"model_type": "openai", "model_name": model_name})
+        model_client = create_model_client({"model_type": model_type, "model_name": model_name})
         
         system_message = Path("./scripts/prompt_templates/system_prompt_marketing_task.md").read_text().format(
             org_name=org_id,
@@ -475,7 +494,9 @@ def run_demo_simulation():
         "quality_distribution": [0.2, 0.3, 0.5],  # Probabilities for high, medium, low quality
         "org_ids": ['forest_forecasts', 'reuters_analytics'],
         "sectors": ['tech'],
-        "model_clients": ['gpt-4o-mini'],
+        "model_clients": [
+            # {"model_name": "'gpt-4o-mini'", "model_type": "openai"},
+                          {"model_name": "claude-sonnet-4-20250514", "model_type": "anthropic"}],
         "n_agents": 4,
 
         "tool_parameters": {
