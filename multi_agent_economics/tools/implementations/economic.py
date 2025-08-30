@@ -144,7 +144,7 @@ def post_to_market_impl(
     # Prepare the offer data
     offer_data = {
         "good_id": forecast_id,
-        "seller_id": config_data.get("seller_id"),
+        "seller_id": config_data.get("org_id"),
         "price": price,
         "marketing_attributes": marketing_attributes
     }
