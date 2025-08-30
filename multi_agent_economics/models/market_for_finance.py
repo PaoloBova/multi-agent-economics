@@ -1010,7 +1010,7 @@ class Offer(BaseModel):
     """ Represents an offer in the market."""
     good_id: str = Field(..., description="Unique identifier for the good")
     price: float = Field(..., description="Price of the offer", gt=0)
-    seller: str = Field(..., description="ID of the seller agent")
+    seller_id: str = Field(..., description="ID of the seller agent")
     marketing_attributes: dict[str, Any] = Field(
         default_factory=dict, 
         description="Original marketing attributes posted by seller (qualitative/numeric)"
