@@ -200,6 +200,86 @@ def create_model_client(args):
     else:
         raise ValueError(f"Unsupported model type: {args['model_type']}")
 
+def generate_marketing_attribute_example(marketing_definitions: dict) -> dict:
+    """Generate a proper marketing attributes example based on current definitions."""
+    example_attrs = {}
+    
+    for attr_name, attr_def in marketing_definitions.items():
+        attr_type = attr_def.get('type', 'qualitative')
+        
+        if attr_type == 'qualitative':
+            # For methodology: use premium as best practice example
+            if attr_name == 'methodology':
+                example_attrs[attr_name] = 'premium'
+            else:
+                values = attr_def.get('values', ['basic', 'standard', 'premium'])
+                example_attrs[attr_name] = values[-1] if values else 'premium'  # Use highest quality
+        elif attr_type == 'numeric':
+            # For coverage: use high-quality example 
+            attr_range = attr_def.get('range', [0.0, 1.0])
+            example_attrs[attr_name] = attr_range[0] + 0.8 * (attr_range[1] - attr_range[0])  # 80% of range
+        else:
+            example_attrs[attr_name] = 'standard'
+    
+    return example_attrs
+
+def generate_effort_guidelines(config: dict) -> str:
+    """Generate effort allocation guidelines based on config thresholds."""
+    tool_params = config.get('tool_parameters', {})
+    guidelines = []
+    
+    for tool_name, params in tool_params.items():
+        thresholds = params.get('effort_thresholds', {})
+        if thresholds:
+            high_threshold = thresholds.get('high', 5.0)
+            medium_threshold = thresholds.get('medium', 2.0)
+            guidelines.append(f"- {tool_name}: high quality ≥{high_threshold}, medium ≥{medium_threshold}")
+    
+    return '\n'.join(guidelines) if guidelines else "- Use effort 2-5 for most tools (higher = better quality)"
+
+def generate_tool_examples(market_state, config: dict) -> str:
+    """Generate dynamic tool usage examples based on current market state."""
+    marketing_attrs = generate_marketing_attribute_example(market_state.marketing_attribute_definitions)
+    effort_guide = generate_effort_guidelines(config)
+    
+    examples = f"""
+## Critical Tool Usage Patterns
+
+### 1. Always Include All Required Parameters
+✅ CORRECT - post_to_market with all required parameters:
+```
+{{"forecast_id": "forecast_abc123", "price": 750.0, "marketing_attributes": {marketing_attrs}}}
+```
+
+❌ WRONG - missing marketing_attributes parameter:
+```
+{{"forecast_id": "forecast_abc123", "price": 750.0}}
+```
+
+### 2. Marketing Attributes Must Match Schema
+✅ CORRECT - proper marketing attributes format:
+```
+{marketing_attrs}
+```
+
+❌ WRONG - empty or malformed attributes:
+```
+{{}} or {{"invalid_key": "value"}}
+```
+
+### 3. Effort Allocation Guidelines
+{effort_guide}
+
+### 4. Required Parameters by Tool
+- post_to_market: forecast_id, price, marketing_attributes
+- research_competitive_pricing: sector, effort, marketing_attributes  
+- analyze_buyer_preferences: sector, effort
+- analyze_historical_performance: sector, effort
+- sector_forecast: sector, effort
+"""
+    
+    return examples
+
 def create_agents(model, config):
     """Create agents and added context variables."""
 
@@ -230,10 +310,12 @@ def create_agents(model, config):
         
         model_client = create_model_client({"model_type": model_type, "model_name": model_name})
         
+        tool_usage_examples = generate_tool_examples(model.state, config)
         system_message = Path("./scripts/prompt_templates/system_prompt_marketing_task.md").read_text().format(
             org_name=org_id,
             org_description="A leading provider of financial market forecasts.",
-            marketing_attributes=model.state.marketing_attribute_definitions
+            marketing_attributes=model.state.marketing_attribute_definitions,
+            tool_usage_examples=tool_usage_examples
         )
         reflect_on_tool_use = base_assistant_agent_config["reflect_on_tool_use"]
         max_tool_iterations = base_assistant_agent_config["max_tool_iterations"]
