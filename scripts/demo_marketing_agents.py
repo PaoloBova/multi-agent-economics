@@ -280,6 +280,209 @@ def generate_tool_examples(market_state, config: dict) -> str:
     
     return examples
 
+def generate_equilibrium_historical_trades(market_state, config: dict) -> None:
+    """
+    Generate historical trades using theoretical equilibrium pricing.
+    
+    Args:
+        market_state: MarketState object to populate with historical data
+        config: Configuration dict containing historical parameters and market setup
+    """
+    import numpy as np
+    import uuid
+    from multi_agent_economics.models.market_for_finance import convert_marketing_to_features, TradeData
+    
+    num_periods = config.get("historical_periods", 50)
+    org_ids = config.get("org_ids", ["forest_forecasts", "reuters_analytics"])
+    quality_distribution = config.get("quality_distribution", [0.2, 0.3, 0.5])
+    quality_types = ["high_quality", "medium_quality", "low_quality"]
+    
+    print(f"Generating {num_periods} periods of theoretical equilibrium trades...")
+    
+    # Define quality combinations using existing mappings from sector_forecast_impl
+    quality_combinations = [
+        {"methodology": "premium", "coverage_range": (0.8, 1.0)},   # high_quality
+        {"methodology": "standard", "coverage_range": (0.5, 0.7)},  # medium_quality  
+        {"methodology": "basic", "coverage_range": (0.1, 0.4)}      # low_quality
+    ]
+    
+    buyers = market_state.buyers_state
+    sector = "tech"
+    
+    # Generate historical trades for each period
+    historical_trades = []
+    
+    for period in range(num_periods):
+        # Both orgs offer identical quality+coverage this period
+        quality_idx = np.random.choice(len(quality_types), p=quality_distribution)
+        combo = quality_combinations[quality_idx]
+        
+        # Sample ONE coverage value for both orgs this period
+        coverage_min, coverage_max = combo["coverage_range"]
+        coverage = np.random.uniform(coverage_min, coverage_max)
+        
+        marketing_attributes = {
+            "methodology": combo["methodology"],
+            "coverage": coverage
+        }
+        
+        # Calculate WTP for each buyer for THIS specific combination
+        buyer_wtps = []
+        for buyer in buyers:
+            features = convert_marketing_to_features(
+                marketing_attributes,
+                buyer.buyer_conversion_function,
+                market_state.attribute_order
+            )
+            wtp = np.dot(buyer.attr_weights[sector], features)
+            buyer_wtps.append((wtp, buyer.budget, buyer))
+        
+        # Find revenue-maximizing equilibrium price for this period's combination
+        buyer_wtps.sort(reverse=True)  # Sort by WTP descending
+        best_revenue = 0
+        best_price = 0
+        
+        for wtp, budget, _ in buyer_wtps:
+            # Try this WTP as potential price
+            price = wtp
+            # Count buyers who would buy (WTP >= price AND budget >= price)
+            quantity = sum(1 for w, b, _ in buyer_wtps if w >= price and b >= price)
+            revenue = price * quantity
+            
+            if revenue > best_revenue:
+                best_revenue = revenue
+                best_price = price
+        
+        equilibrium_price = max(best_price, 50.0)  # Price floor
+        
+        # Find buyers who would purchase at equilibrium price
+        eligible_buyers = []
+        for wtp, budget, buyer in buyer_wtps:
+            if wtp >= equilibrium_price and budget >= equilibrium_price:
+                eligible_buyers.append(buyer)
+        
+        # Split eligible buyers 50/50 between orgs
+        for org_idx, org_id in enumerate(org_ids):
+            buyer_subset = eligible_buyers[org_idx::len(org_ids)]  # Alternate buyers by org
+            
+            # Create trades for this org's buyers
+            for buyer in buyer_subset:
+                trade = TradeData(
+                    buyer_id=buyer.buyer_id,
+                    seller_id=org_id,
+                    price=equilibrium_price,
+                    quantity=1,
+                    good_id=f"historical_{org_id}_{period}_{uuid.uuid4().hex[:8]}",
+                    marketing_attributes=marketing_attributes,
+                    buyer_conversion_used={},  # Not needed for historical data
+                    period=period
+                )
+                historical_trades.append(trade)
+    
+    # Populate market state with historical data
+    market_state.all_trades.extend(historical_trades)
+    print(f"Generated {len(historical_trades)} theoretical equilibrium trades")
+
+def plot_historical_market_trends(all_trades: list) -> None:
+    """
+    Visualize historical trading patterns by quality and pricing.
+    
+    Args:
+        all_trades: List of TradeData objects containing historical transaction data
+    """
+    import matplotlib.pyplot as plt
+    import pandas as pd
+    
+    if not all_trades:
+        print("No historical trades to visualize")
+        return
+    
+    print(f"Visualizing trends from {len(all_trades)} historical trades...")
+    
+    # Convert trade data to DataFrame for easier analysis
+    trade_data = []
+    for trade in all_trades:
+        marketing_attrs = getattr(trade, 'marketing_attributes', {})
+        methodology = marketing_attrs.get('methodology', 'unknown')
+        coverage = marketing_attrs.get('coverage', 0.0)
+        
+        trade_data.append({
+            'period': trade.period,
+            'price': trade.price,
+            'methodology': methodology,
+            'coverage': coverage,
+            'seller_id': trade.seller_id
+        })
+    
+    df = pd.DataFrame(trade_data)
+    
+    # Create subplot layout
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    fig.suptitle('Historical Market Analysis', fontsize=16)
+    
+    # 1. Trade volume by methodology over time
+    ax1 = axes[0, 0]
+    methodology_counts = df.groupby(['period', 'methodology']).size().unstack(fill_value=0)
+    for methodology in ['basic', 'standard', 'premium']:
+        if methodology in methodology_counts.columns:
+            ax1.plot(methodology_counts.index, methodology_counts[methodology], 
+                    label=methodology, marker='o', markersize=3)
+    ax1.set_title('Trade Volume by Methodology Over Time')
+    ax1.set_xlabel('Period')
+    ax1.set_ylabel('Number of Trades')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    
+    # 2. Price distribution by methodology
+    ax2 = axes[0, 1]
+    for methodology in ['basic', 'standard', 'premium']:
+        subset = df[df['methodology'] == methodology]
+        if not subset.empty:
+            ax2.hist(subset['price'], alpha=0.6, label=methodology, bins=10)
+    ax2.set_title('Price Distribution by Methodology')
+    ax2.set_xlabel('Price')
+    ax2.set_ylabel('Frequency')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    
+    # 3. Quality distribution
+    ax3 = axes[1, 0]
+    methodology_counts = df['methodology'].value_counts()
+    colors = {'basic': 'red', 'standard': 'orange', 'premium': 'green'}
+    wedge_colors = [colors.get(method, 'gray') for method in methodology_counts.index]
+    ax3.pie(methodology_counts.values, labels=methodology_counts.index, autopct='%1.1f%%',
+            colors=wedge_colors)
+    ax3.set_title('Historical Quality Distribution')
+    
+    # 4. Price vs Coverage scatter
+    ax4 = axes[1, 1]
+    for methodology in ['basic', 'standard', 'premium']:
+        subset = df[df['methodology'] == methodology]
+        if not subset.empty:
+            ax4.scatter(subset['coverage'], subset['price'], 
+                       label=methodology, alpha=0.6, s=20)
+    ax4.set_title('Price vs Coverage by Methodology')
+    ax4.set_xlabel('Coverage')
+    ax4.set_ylabel('Price')
+    ax4.legend()
+    ax4.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.show()
+    
+    # Print summary statistics
+    print(f"\n=== Historical Market Summary ===")
+    print(f"Total trades: {len(all_trades)}")
+    print(f"Average price: ${df['price'].mean():.2f}")
+    print(f"Price range: ${df['price'].min():.2f} - ${df['price'].max():.2f}")
+    
+    methodology_stats = df.groupby('methodology').agg({
+        'price': ['count', 'mean', 'std'],
+        'coverage': ['mean']
+    }).round(2)
+    print("\nBreakdown by methodology:")
+    print(methodology_stats)
+
 def create_agents(model, config):
     """Create agents and added context variables."""
 
@@ -368,7 +571,6 @@ def collect_stats_demo(model, config):
     
     period = model.state.current_period
     print(f"--- Period {period + 1} ---")
-    print(f"Offers posted (all-time): {len(model.state.offers)}")
     print(f"Trades executed: {len(model.state.trades)}")
     
     # Logging in this case means both to log to file and to collect in-memory
@@ -642,10 +844,18 @@ async def run_demo_simulation_async():
         },
         "max_chat_turns": 10,
         "max_chat_turns_single_agent": 10,
+        "historical_periods": 50,
         "market_config": market_for_finance.MarketConfig()
     }
     
     market_state = create_market_state()
+    
+    # Generate historical market data for agents to research
+    generate_equilibrium_historical_trades(market_state, config)
+    
+    # Visualize historical market patterns
+    plot_historical_market_trends(market_state.all_trades)
+    
     model = MarketModel(
       id=1,
       num_rounds=5,
