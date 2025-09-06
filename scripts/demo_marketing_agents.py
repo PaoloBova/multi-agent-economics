@@ -40,7 +40,12 @@ from multi_agent_economics.core.workspace_memory import WorkspaceMemory
 from multi_agent_economics.tools.artifacts import create_artifact_tools
 from multi_agent_economics.tools.economic import create_economic_tools
 from multi_agent_economics.tools.implementations.economic import sector_forecast_impl
-        
+
+
+from typing import Sequence
+from autogen_agentchat.messages import BaseAgentEvent, BaseChatMessage
+from autogen_core.models import FunctionExecutionResult
+
 def setup_logging(log_file: Path):
     """Setup logging configuration."""
     logging.basicConfig(
@@ -67,11 +72,16 @@ def setup_logging(log_file: Path):
 
 # logger will be set up in main function
 
-def terminate_chat(messages: str) -> bool:
+def terminate_chat(messages: Sequence[BaseAgentEvent | BaseChatMessage]) -> bool:
     """Determine if the chat should terminate based on the message."""
     try:
-        posted_offer = PostToMarketResponse.model_validate_json(messages[-1])
-        return posted_offer.success == True
+        last_message = messages[-1]
+        if isinstance(last_message, FunctionExecutionResult):
+            if last_message.name == "post_to_market":
+                content = PostToMarketResponse.model_validate_json(last_message.content)
+                if content.status == "success":
+                    return True
+        return False
     except Exception:
         return False
 
@@ -80,7 +90,7 @@ def create_market_state():
 
     # Create buyers with diverse preferences
     buyers = []
-    for i in range(1000):
+    for i in range(10):
         # Vary buyer preferences and budgets
         methodology_weight = 0.4 + (i % 3) * 0.2  # 0.4, 0.6, 0.8
         coverage_weight = 0.3 + (i % 2) * 0.4     # 0.3, 0.7
@@ -297,9 +307,11 @@ def collect_stats_demo(model, config):
     quality_types = list(config['quality_type_effort_mapping'].keys())
     trade_counts = {qtype: 0 for qtype in quality_types}
     for trade in model.state.trades:
-        trade.org_id = trade.seller_id
-        for _agent_name, metadata in model.agent_metadata.items():
-            trade_counts[metadata['quality_type']] += 1
+        org_id = trade.seller_id
+        # Find the first agent belonging to this org_id
+        agent_id = model.chats.get(f"org_chat_{org_id}")._participants[0].name
+        agent_metadata = model.agent_metadata.get(agent_id, {})
+        trade_counts[agent_metadata['quality_type']] += 1
     stats = {"trade_counts": trade_counts}
     model.model_results.append(stats)
 
@@ -430,12 +442,12 @@ async def run_ai_agents_async(market_model: MarketModel, config: dict):
     logger.info("run_ai_agents completed")
     return
 
-def run_ai_agents(market_model: MarketModel, config: dict):
+async def run_ai_agents(market_model: MarketModel, config: dict):
     """Run the AI agents to make marketing decisions."""
-    asyncio.run(run_ai_agents_async(market_model, config))
+    await run_ai_agents_async(market_model, config)
     return
 
-def run_model_step(market_model: MarketModel, config: dict):
+async def run_model_step(market_model: MarketModel, config: dict):
     """Run a single step of the market model."""
     
     logger = logging.getLogger('demo_marketing_agents')
@@ -443,23 +455,25 @@ def run_model_step(market_model: MarketModel, config: dict):
     assign_forecasts_to_agents(market_model, config)
     logger.info("Forecasts assigned, about to run AI agents")
 
-    run_ai_agents(market_model, config)
+    await run_ai_agents(market_model, config)
 
-    # Run the market simulation step
-    market_for_finance.model_step(market_model, config)
-    
     # Each LLM seller should have posted a trade offer by now. If they haven't,
     # raise a warning.
+    print("Number of offers posted:", len(market_model.state.offers))
     for agent in market_model.agents:
         org_id = market_model.agent_metadata[agent.name]['org_id']
         if not any(offer.seller_id == org_id
                    for offer in market_model.state.offers):
             print(f"WARNING: Seller {org_id} did not post any offers this period.")
     
+    # Run the market simulation step
+    print("Running market simulation step...")
+    market_for_finance.model_step(market_model, config)
+    print("Market simulation step completed.")
     
     return
 
-def run_demo_simulation():
+async def run_demo_simulation_async():
     """Run a demonstration of the marketing-focused simulation."""
     
     print("=== Marketing-Focused Multi-Agent Economics Demo ===\n")
@@ -496,7 +510,10 @@ def run_demo_simulation():
         "sectors": ['tech'],
         "model_clients": [
             # {"model_name": "'gpt-4o-mini'", "model_type": "openai"},
-                          {"model_name": "claude-sonnet-4-20250514", "model_type": "anthropic"}],
+            {"model_name": "o3", "model_type": "openai"},
+            # {"model_name": "gpt-5-mini", "model_type": "openai"},
+            # {"model_name": "claude-sonnet-4-20250514", "model_type": "anthropic"}
+                          ],
         "n_agents": 4,
 
         "tool_parameters": {
@@ -541,7 +558,7 @@ def run_demo_simulation():
                 "low_effort_lookback_trades": 10
             },    
         },
-        "max_chat_turns": 20,
+        "max_chat_turns": 10,
         "max_chat_turns_single_agent": 10,
         "market_config": market_for_finance.MarketConfig()
     }
@@ -549,7 +566,7 @@ def run_demo_simulation():
     market_state = create_market_state()
     model = MarketModel(
       id=1,
-      num_rounds=2,
+      num_rounds=5,
       name="marketing_demo",
       agents=[],
       agent_metadata={},
@@ -566,7 +583,16 @@ def run_demo_simulation():
     model.chats = chats
     logger.info(f"Created {len(model.chats)} chats")
 
-    abm.run(model, config)
+    # Run async simulation loop (replacement for abm.run)
+    logger.info(f"Starting simulation with {len(model.agents)} agents.")
+    
+    model.collect_stats(model, config)
+    for _ in range(model.num_rounds):
+        logger.info(f"Round {model.tick} begins.")
+        await model.step(model, config)
+        model.collect_stats(model, config)
+        logger.info(f"Round {model.tick} ends.")
+        logger.info("-" * 50)
 
     print("=== Simulation Summary ===")
     
@@ -593,7 +619,12 @@ def run_demo_simulation():
     plt.ylabel("Number of Trades Executed")
     plt.title("Trades Executed Over Time by Quality Type")
     plt.legend()
+    plt.show()
 
+
+def run_demo_simulation():
+    """Synchronous wrapper for the async simulation."""
+    asyncio.run(run_demo_simulation_async())
 
 if __name__ == "__main__":
     run_demo_simulation()

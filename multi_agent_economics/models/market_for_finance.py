@@ -214,7 +214,11 @@ def update_belief_with_forecast(current_belief, forecast):
     """
     Update beliefs for a specific sector based on the forecast signal.
     """
-    likelihood = forecast.confidence_vector
+    # Ensure both are numpy arrays for element-wise operations
+    current_belief = np.array(current_belief)
+    likelihood = np.array(forecast.confidence_vector)
+    
+    # Element-wise multiplication for Bayesian update
     posterior = current_belief * likelihood
     posterior = posterior / np.sum(posterior) if np.sum(posterior) > 0 else current_belief
     return posterior
@@ -242,7 +246,10 @@ def update_agent_beliefs(prior_beliefs: dict,
     for sector in prior_beliefs.keys():
         
         # Step 1: Prediction (prior transition)
-        predicted_belief = prior_beliefs[sector] @ subjective_transitions[sector]
+        # Ensure arrays for matrix multiplication
+        prior_belief = np.array(prior_beliefs[sector])
+        transition_matrix = np.array(subjective_transitions[sector])
+        predicted_belief = prior_belief @ transition_matrix
         
         if sector not in forecasts:
             # No forecast for this sector, just apply transition
@@ -633,6 +640,10 @@ def sample_cart_multidraw(offers, probs, budget, T=10000):
             # zero‐out that offer to avoid repeats
             probs[j] = 0
             probs = renormalize(probs)
+        else:
+            # zero-out offers that are too expensive
+            probs[j] = 0
+            probs = renormalize(probs)
         # even if the item didn't fit, we count the draw
         draws += 1
 
@@ -710,7 +721,7 @@ def clear_market(choices, _model, config):
         for buyer_id, offer in choices:
             trade = TradeData(
                 buyer_id=buyer_id,
-                seller_id=offer.seller,  # Use seller field from Offer
+                seller_id=offer.seller_id,  # Use seller field from Offer
                 price=offer.price,
                 quantity=1,  # Default quantity
                 good_id=offer.good_id,
@@ -736,6 +747,7 @@ def resolve_ex_post_valuations(trades, model, market_cfg):
     # Group knowledge good trades by buyer and sector
     buyer_sector_trades = {}
     for trade in trades:
+        print("Trade in resolve_ex_post_valuations:", trade)
         # Skip if not a knowledge good
         if trade.good_id not in model.state.knowledge_good_forecasts:
             continue
@@ -791,6 +803,7 @@ def compute_surpluses(trades, model, market_cfg):
     for buyer_state in model.state.buyers_state:
         buyer_surplus = 0.0
         for trade in trades:
+            print("Trade:", trade)
             if trade.buyer_id == buyer_state.buyer_id:
                 # Add the economic value of knowledge goods
                 if (trade.good_id in model.state.knowledge_good_impacts and 
@@ -910,8 +923,7 @@ def run_market_dynamics(model, market_cfg):
     
     # 3. Resolve ex-post valuations and surpluses
     resolve_ex_post_valuations(trades, model, market_cfg)
-    for trade in trades:
-        compute_surpluses(trade, model, market_cfg)
+    compute_surpluses(trades, model, market_cfg)
 
     # 4. Demand-side shock for next round - update buyer preferences based on knowledge good performance
     transition_demand(model, market_cfg)
