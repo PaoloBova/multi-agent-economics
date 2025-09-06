@@ -75,14 +75,53 @@ def setup_logging(log_file: Path):
 def terminate_chat(messages: Sequence[BaseAgentEvent | BaseChatMessage]) -> bool:
     """Determine if the chat should terminate based on the message."""
     try:
-        last_message = messages[-1]
-        if isinstance(last_message, FunctionExecutionResult):
-            if last_message.name == "post_to_market":
-                content = PostToMarketResponse.model_validate_json(last_message.content)
-                if content.status == "success":
-                    return True
+        # Look through recent messages for successful post_to_market calls
+        # Check last few messages since agents often send follow-up TextMessages after tool calls
+        recent_messages = messages[-5:] if len(messages) >= 5 else messages
+        
+        for message in reversed(recent_messages):  # Check most recent first
+            # Handle ToolCallExecutionEvent messages (the actual message type in logs)
+            if hasattr(message, 'content') and hasattr(message, 'type'):
+                if getattr(message, 'type', None) == 'ToolCallExecutionEvent':
+                    # ToolCallExecutionEvent.content is a list of FunctionExecutionResult objects
+                    content_list = getattr(message, 'content', [])
+                    for function_result in content_list:
+                        if (hasattr(function_result, 'name') and 
+                            hasattr(function_result, 'content') and
+                            function_result.name == "post_to_market" and 
+                            not getattr(function_result, 'is_error', True)):
+                            
+                            # Parse the JSON content to check status
+                            try:
+                                result_data = PostToMarketResponse.model_validate_json(function_result.content)
+                                if result_data.status == "success":
+                                    return True
+                            except:
+                                # If content is already parsed object, try direct access
+                                import json
+                                try:
+                                    if isinstance(function_result.content, str):
+                                        content_dict = json.loads(function_result.content)
+                                    else:
+                                        content_dict = function_result.content
+                                    if content_dict.get("status") == "success":
+                                        return True
+                                except:
+                                    continue
+            
+            # Legacy handling for direct FunctionExecutionResult (just in case)
+            elif hasattr(message, 'name') and message.name == "post_to_market":
+                try:
+                    content = PostToMarketResponse.model_validate_json(message.content)
+                    if content.status == "success":
+                        return True
+                except:
+                    continue
+        
         return False
-    except Exception:
+    except Exception as e:
+        # More informative error handling for debugging
+        print(f"terminate_chat error: {e}")
         return False
 
 def create_market_state():
