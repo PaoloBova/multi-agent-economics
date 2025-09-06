@@ -217,7 +217,7 @@ def create_agents(model, config):
         "reflect_on_tool_use": True,
         "max_tool_iterations": 10,
     }
-    artifact_manager_path = Path(f"./demo_marketing_agents_workspace")
+    artifact_manager_path = Path(f"./demo_marketing_agents_workspaces/{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     artifact_manager = ArtifactManager(artifact_manager_path)
     
     for agent_id in range(n_agents):
