@@ -747,7 +747,6 @@ def resolve_ex_post_valuations(trades, model, market_cfg):
     # Group knowledge good trades by buyer and sector
     buyer_sector_trades = {}
     for trade in trades:
-        print("Trade in resolve_ex_post_valuations:", trade)
         # Skip if not a knowledge good
         if trade.good_id not in model.state.knowledge_good_forecasts:
             continue
@@ -803,7 +802,6 @@ def compute_surpluses(trades, model, market_cfg):
     for buyer_state in model.state.buyers_state:
         buyer_surplus = 0.0
         for trade in trades:
-            print("Trade:", trade)
             if trade.buyer_id == buyer_state.buyer_id:
                 # Add the economic value of knowledge goods
                 if (trade.good_id in model.state.knowledge_good_impacts and 
