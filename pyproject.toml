@@ -18,8 +18,9 @@ classifiers = [
 [tool.poetry.dependencies]
 python = "^3.12"
 # Core AutoGen dependencies
-autogen-agentchat = "^0.6.4"
-autogen-ext = {version = "^0.6.4", extras = ["openai", "anthropic"]}
+autogen-agentchat = "^0.7.4"
+autogen-core = "^0.7.4"
+autogen-ext = {version = "^0.7.4", extras = ["openai", "anthropic"]}
 # Essential for the project
 dvc = "^3.0.0"
 pydantic = "^2.0.0"
@@ -30,7 +31,6 @@ numpy = "^1.24.0"
 matplotlib = "^3.7.0"
 # LLM provider
 openai = "^1.0.0"
-autogen-core = "^0.6.4"
 tqdm = "^4.65.0"           # Progress bars for simulations
 networkx = "^3.1"          # Graph data structures
 plotly = "^5.15.0"         # Interactive plotting

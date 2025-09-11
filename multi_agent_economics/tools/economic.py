@@ -93,9 +93,16 @@ def create_economic_tools(market_model, config_data: Dict[str, Any]) -> List[Fun
     async def research_competitive_pricing(
         sector: Annotated[str, "Sector to analyze (tech, finance, healthcare, energy)"],
         effort: Annotated[float, "Credits to allocate (0.1-10.0)"],
-        marketing_attributes: Annotated[Dict[str, Any], "Marketing attributes associated with good to price."]
+        marketing_attributes: Annotated[Dict[str, Any], "Marketing attributes of YOUR proposed product to analyze competitive positioning and optimal pricing."]
     ) -> CompetitivePricingResponse:
-        """Research competitive pricing patterns within a sector for market research."""
+        """Research competitive pricing for a specific product configuration.
+        
+        Simulates how YOUR product with the specified marketing attributes would 
+        perform against current market competitors. Returns pricing recommendations
+        based on market share projections.
+        
+        Requires marketing_attributes to specify the exact product you want to price.
+        """
         
         effort = handle_budget(market_model, config_data, effort, "research_competitive_pricing")
         return research_competitive_pricing_impl(market_model, config_data, sector, effort, marketing_attributes)

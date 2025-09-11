@@ -362,7 +362,7 @@ def generate_test_offers(sector: str, num_offers: int, attribute_order: List[str
         offer = Offer(
             good_id=f"test_{sector}_{i}",
             price=50.0 + np.random.uniform(-20, 20),  # Vary prices
-            seller="test_seller",
+            seller_id="test_seller",
             marketing_attributes=marketing_attributes
         )
         test_offers.append(offer)
@@ -658,7 +658,7 @@ def research_competitive_pricing_impl(
         competitor_offer = Offer(
             good_id=trade.good_id,
             price=trade.price,
-            seller=trade.seller_id,
+            seller_id=trade.seller_id,
             marketing_attributes=trade.marketing_attributes
         )
         competitor_offers.append(competitor_offer)
@@ -714,7 +714,7 @@ def research_competitive_pricing_impl(
         candidate_offer = Offer(
             good_id=f"candidate_offer_{sector}",
             price=price,
-            seller="our_seller",
+            seller_id="our_seller",
             marketing_attributes=marketing_attributes
         )
         
