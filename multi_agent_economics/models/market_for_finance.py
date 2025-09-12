@@ -618,7 +618,7 @@ def get_marketing_attribute_description(marketing_attributes: dict[str, Any],
 
 def sample_cart_multidraw(offers, probs, budget, T=10000):
     """
-    Build a “cart” by sampling offers without replacement until budget runs out
+    Build a "cart" by sampling offers without replacement until budget runs out
     or no probability mass remains.
     
     offers: list of objects with a .price attribute
@@ -626,6 +626,10 @@ def sample_cart_multidraw(offers, probs, budget, T=10000):
     budget: total spend limit
     T:      maximum number of draws (optional; if None, infinite)
     """
+    # Handle empty offers
+    if not offers or len(probs) == 0:
+        return []
+    
     probs = renormalize(probs)
     cart = []
     remaining = budget
@@ -652,7 +656,17 @@ def sample_cart_multidraw(offers, probs, budget, T=10000):
 def solve_continuous_knapsack(U, p, B):
     # U, p are arrays of same length; B is budget
     # find λ>0 s.t. sum_j min(1, max(0, U[j]/λ)) * p[j] == B
-    λ_low, λ_high = 1e-9, max(U)/1e-9
+    
+    # Handle empty inputs
+    if len(U) == 0 or len(p) == 0:
+        return []
+    
+    # Handle numerical edge cases
+    max_U = max(U)
+    if max_U <= 0:
+        return [0.0] * len(U)
+    
+    λ_low, λ_high = 1e-9, max_U/1e-9
     for _ in range(50):
         λ = 0.5*(λ_low + λ_high)
         spend = sum(min(1, max(0, U[j]/λ)) * p[j] for j in range(len(U)))
@@ -666,11 +680,22 @@ def solve_continuous_knapsack(U, p, B):
 def greedy_budget_choice(offers, V, B):
     """
     offers: list of Offer
-    V[j]: buyer’s gross valuation for offer j
+    V[j]: buyer's gross valuation for offer j
     B: initial budget
     """
-    scores = [ ( (V[j]-offers[j].price)/offers[j].price, j )
-               for j in range(len(offers)) ]
+    # Handle empty offers
+    if not offers:
+        return []
+    
+    scores = []
+    for j in range(len(offers)):
+        price = offers[j].price
+        if price <= 0:
+            # Skip offers with zero or negative price to avoid division by zero
+            continue
+        score = (V[j] - price) / price
+        scores.append((score, j))
+    
     # stable‐sort descending, but break exact ties by a coin flip
     scores.sort(key=lambda x: (x[0], numpy.random.random()), reverse=True)
 
@@ -686,20 +711,40 @@ def greedy_budget_choice(offers, V, B):
 
 def choice_model(buyer_state, offers, config, model_state):
     """Dispatches to the appropriate choice model based on configuration."""
+    
+    # Handle empty offers list
+    if not offers:
+        return []
+    
     # Calculate value of each offer to the buyer using canonical attribute ordering
-    V = lambda offer: numpy.dot(buyer_state.attr_weights[model_state.knowledge_good_forecasts[offer.good_id].sector], 
-                                convert_marketing_to_features(offer.marketing_attributes, 
-                                                              buyer_state.buyer_conversion_function,
-                                                              model_state.attribute_order))
+    def V(offer):
+        if offer.sector not in buyer_state.attr_weights:
+            raise KeyError(f"Buyer {buyer_state.buyer_id} has no attr_weights for sector {offer.sector}")
+        return numpy.dot(buyer_state.attr_weights[offer.sector], 
+                        convert_marketing_to_features(offer.marketing_attributes, 
+                                                      buyer_state.buyer_conversion_function,
+                                                      model_state.attribute_order))
+    
     value_of = [V(offer) for offer in offers]
     buyer_state.value_of = value_of  # Store for later use
-    if "cart_draws" not in config:
+    if not hasattr(config, 'cart_draws'):
         config.cart_draws = None  # Default to no limit
 
     if config.choice_model == "greedy":
         choices = greedy_budget_choice(offers, value_of, buyer_state.budget)
     elif config.choice_model == "logit_cart":
-        choice_probs = numpy.exp(value_of) / numpy.sum(numpy.exp(value_of))
+        # Use log-sum-exp trick for numerical stability
+        value_array = numpy.array(value_of)
+        max_val = numpy.max(value_array)
+        
+        # Compute log probabilities: log(p_i) = v_i - log_sum_exp(v)
+        # where log_sum_exp(v) = max(v) + log(sum(exp(v - max(v))))
+        stable_exp = numpy.exp(value_array - max_val)
+        log_sum_exp = max_val + numpy.log(numpy.sum(stable_exp))
+        log_probs = value_array - log_sum_exp
+        
+        # Convert to probabilities (only when needed)
+        choice_probs = numpy.exp(log_probs)
         choices = sample_cart_multidraw(offers, choice_probs, buyer_state.budget, T=config.cart_draws)
     elif config.choice_model == "knapsack":
         p = [o.price for o in offers]
@@ -725,6 +770,8 @@ def clear_market(choices, _model, config):
                 price=offer.price,
                 quantity=1,  # Default quantity
                 good_id=offer.good_id,
+                sector=offer.sector,  # Use sector field from Offer
+                marketing_attributes=offer.marketing_attributes,
                 period=_model.state.current_period
             )
             trades.append(trade)
@@ -1006,6 +1053,7 @@ class TradeData(BaseModel):
     price: float = Field(..., description="Trade price", gt=0)
     quantity: int = Field(..., description="Trade quantity", gt=0)
     good_id: str = Field(..., description="ID of the traded good")
+    sector: str = Field(..., description="Sector for the traded good")
     marketing_attributes: dict[str, Any] = Field(
         default_factory=dict,
         description="Original marketing attributes from the winning offer"
@@ -1021,6 +1069,7 @@ class Offer(BaseModel):
     good_id: str = Field(..., description="Unique identifier for the good")
     price: float = Field(..., description="Price of the offer", gt=0)
     seller_id: str = Field(..., description="ID of the seller agent")
+    sector: str = Field(..., description="Sector for the offer")
     marketing_attributes: dict[str, Any] = Field(
         default_factory=dict, 
         description="Original marketing attributes posted by seller (qualitative/numeric)"

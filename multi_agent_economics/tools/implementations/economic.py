@@ -141,11 +141,16 @@ def post_to_market_impl(
             message=f"Forecast ID {forecast_id} not found in market model state. No such knowledge good exists."
         )
     
+    # Get the sector from the forecast
+    forecast = market_model.state.knowledge_good_forecasts[forecast_id]
+    sector = forecast.sector
+    
     # Prepare the offer data
     offer_data = {
         "good_id": forecast_id,
         "seller_id": config_data.get("org_id"),
         "price": price,
+        "sector": sector,
         "marketing_attributes": marketing_attributes
     }
     market_model.state.offers.append(Offer(**offer_data))
@@ -363,6 +368,7 @@ def generate_test_offers(sector: str, num_offers: int, attribute_order: List[str
             good_id=f"test_{sector}_{i}",
             price=50.0 + np.random.uniform(-20, 20),  # Vary prices
             seller_id="test_seller",
+            sector=sector,
             marketing_attributes=marketing_attributes
         )
         test_offers.append(offer)
@@ -659,6 +665,7 @@ def research_competitive_pricing_impl(
             good_id=trade.good_id,
             price=trade.price,
             seller_id=trade.seller_id,
+            sector=trade.sector,
             marketing_attributes=trade.marketing_attributes
         )
         competitor_offers.append(competitor_offer)
@@ -715,6 +722,7 @@ def research_competitive_pricing_impl(
             good_id=f"candidate_offer_{sector}",
             price=price,
             seller_id="our_seller",
+            sector=sector,
             marketing_attributes=marketing_attributes
         )
         
@@ -747,7 +755,7 @@ def research_competitive_pricing_impl(
                         
             except Exception as e:
                 # Handle any choice model errors gracefully
-                warnings.append(f"Choice model simulation error at price {price:.2f}")
+                warnings.append(f"Choice model simulation error at price {price:.2f}: {str(e)}")
                 continue
         
         # Calculate competitive metrics

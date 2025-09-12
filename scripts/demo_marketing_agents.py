@@ -486,6 +486,7 @@ def generate_equilibrium_historical_trades(market_state, config: dict) -> None:
                     price=equilibrium_price,
                     quantity=1,
                     good_id=f"historical_{org_id}_{period}_{uuid.uuid4().hex[:8]}",
+                    sector=sector,
                     marketing_attributes=marketing_attributes,
                     buyer_conversion_used={},  # Not needed for historical data
                     period=period
@@ -595,6 +596,7 @@ def generate_simple_historical_trades(market_state, config: dict) -> None:
                     price=period_price,
                     quantity=1,
                     good_id=f"hist_{org_id}_{period}_{uuid.uuid4().hex[:8]}",
+                    sector=sector,
                     marketing_attributes=marketing_attributes,
                     buyer_conversion_used={},
                     period=period
@@ -1052,7 +1054,11 @@ async def run_demo_simulation_async():
         },
         
         "quality_distribution": [0.2, 0.3, 0.5],  # Probabilities for high, medium, low quality
-        "org_ids": ['forest_forecasts', 'reuters_analytics'],
+        "org_ids": ['forest_forecasts', 'reuters_analytics',
+                    'alpha_insights', 'beta_data_solutions',
+                    'gamma_market_research', 'delta_financials',
+                    'epsilon_analytics', 'zeta_forecasting',
+                    'theta_data_services', 'iota_market_intel'],
         "sectors": ['tech'],
         "model_clients": [
             # {"model_name": "'gpt-4o-mini'", "model_type": "openai"},
@@ -1060,7 +1066,7 @@ async def run_demo_simulation_async():
             {"model_name": "gpt-5-mini", "model_type": "openai"},
             # {"model_name": "claude-sonnet-4-20250514", "model_type": "anthropic"}
                           ],
-        "n_agents": 4,
+        "n_agents": 20,
 
         "tool_parameters": {
             "sector_forecast": {
@@ -1106,7 +1112,7 @@ async def run_demo_simulation_async():
         },
         "max_chat_turns": 10,
         "max_chat_turns_single_agent": 10,
-        "historical_periods": 50,
+        "historical_periods": 20,
         "historical_production_cost": 30.0,  # Per forecast - ensures healthy margins
         "market_config": market_for_finance.MarketConfig(),
         "prompt_variant": "subtle"  # Options: "subtle" or "direct"
